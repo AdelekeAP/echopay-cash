@@ -42,8 +42,13 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
     import sys
 
     # Drop any cached app modules so config + engine re-evaluate.
+    # Any module that imports `app.core.db` directly or transitively
+    # must appear here, or it will keep a reference to the previous
+    # test's engine and write to the wrong SQLite file.
     for mod in [
         "app.api.transfer",
+        "app.api.wallet",
+        "app.api.sync",
         "app.main",
         "app.models",
         "app.core.db",

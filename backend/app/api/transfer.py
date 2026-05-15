@@ -50,6 +50,11 @@ class InNetworkTransferRequest(BaseModel):
     to_user_id: int = Field(..., ge=1)
     amount_kobo: int = Field(..., gt=0, description="Positive integer kobo")
     idempotency_key: str = Field(..., min_length=1, max_length=128)
+    # PRD_FUNBI §11.2 — when true, debit sender.locked_kobo (offline
+    # budget) instead of sender.balance_kobo. Receiver always credits
+    # their balance_kobo regardless. Set true by the outbox replay
+    # path for txs that were created while the sender was offline.
+    from_locked: bool = False
 
     @field_validator("idempotency_key")
     @classmethod
@@ -77,6 +82,8 @@ class _TxData(BaseModel):
     status: str
     settled_at: int
     balance_after_kobo: int
+    locked_after_kobo: int = 0
+    debited_from: str = "balance"            # 'balance' | 'locked'
 
 
 InNetworkTransferResponse.model_rebuild()
@@ -90,7 +97,12 @@ def _existing_row(db: Session, idempotency_key: str) -> Transaction | None:
     )
 
 
-def _row_to_response(row: Transaction, balance_after_kobo: int) -> InNetworkTransferResponse:
+def _row_to_response(
+    row: Transaction,
+    balance_after_kobo: int,
+    locked_after_kobo: int = 0,
+    debited_from: str = "balance",
+) -> InNetworkTransferResponse:
     return InNetworkTransferResponse(
         success=True,
         data=_TxData(
@@ -98,6 +110,8 @@ def _row_to_response(row: Transaction, balance_after_kobo: int) -> InNetworkTran
             status=row.status,
             settled_at=row.settled_at or row.created_at,
             balance_after_kobo=balance_after_kobo,
+            locked_after_kobo=locked_after_kobo,
+            debited_from=debited_from,
         ),
     )
 
@@ -142,7 +156,12 @@ def in_network_transfer(
             existing = _existing_row(db, req.idempotency_key)
             if existing:
                 wallet = db.get(Wallet, req.from_user_id)
-                return _row_to_response(existing, wallet.balance_kobo if wallet else 0)
+                return _row_to_response(
+                    existing,
+                    wallet.balance_kobo if wallet else 0,
+                    wallet.locked_kobo if wallet else 0,
+                    "locked" if req.from_locked else "balance",
+                )
             raise HTTPException(status_code=409, detail=str(e)) from e
 
     raise HTTPException(
@@ -166,7 +185,12 @@ def _attempt_transfer(
         existing = _existing_row(db, req.idempotency_key)
         if existing:
             wallet = db.get(Wallet, existing.user_id)
-            return _row_to_response(existing, wallet.balance_kobo if wallet else 0)
+            return _row_to_response(
+                existing,
+                wallet.balance_kobo if wallet else 0,
+                wallet.locked_kobo if wallet else 0,
+                "locked" if req.from_locked else "balance",
+            )
 
         # 2. Lock + load both wallets
         sender = db.get(Wallet, req.from_user_id)
@@ -182,21 +206,37 @@ def _attempt_transfer(
                 detail={"code": "receiver_wallet_not_found"},
             )
 
-        # 3. Balance check
-        if sender.balance_kobo < req.amount_kobo:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "insufficient_balance",
-                    "message": "Insufficient balance.",
-                    "balance_kobo": sender.balance_kobo,
-                    "amount_kobo": req.amount_kobo,
-                },
-            )
+        # 3. Balance check — different pot depending on from_locked
+        if req.from_locked:
+            if sender.locked_kobo < req.amount_kobo:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "insufficient_locked_balance",
+                        "message": "Insufficient offline budget.",
+                        "locked_kobo": sender.locked_kobo,
+                        "amount_kobo": req.amount_kobo,
+                    },
+                )
+        else:
+            if sender.balance_kobo < req.amount_kobo:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "insufficient_balance",
+                        "message": "Insufficient balance.",
+                        "balance_kobo": sender.balance_kobo,
+                        "amount_kobo": req.amount_kobo,
+                    },
+                )
 
-        # 4. Atomic move
+        # 4. Atomic move — sender debits the chosen pot,
+        #    receiver always credits balance_kobo (online wallet).
         now = now_unix()
-        sender.balance_kobo -= req.amount_kobo
+        if req.from_locked:
+            sender.locked_kobo -= req.amount_kobo
+        else:
+            sender.balance_kobo -= req.amount_kobo
         sender.version += 1
         sender.updated_at = now
         receiver.balance_kobo += req.amount_kobo
@@ -222,6 +262,7 @@ def _attempt_transfer(
         db.flush()  # raise IntegrityError now (caught by handler) if race
 
         balance_after = sender.balance_kobo
+        locked_after = sender.locked_kobo
 
     return InNetworkTransferResponse(
         success=True,
@@ -230,5 +271,7 @@ def _attempt_transfer(
             status="completed",
             settled_at=now,
             balance_after_kobo=balance_after,
+            locked_after_kobo=locked_after,
+            debited_from="locked" if req.from_locked else "balance",
         ),
     )

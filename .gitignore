@@ -37,3 +37,6 @@ build/
 # Local databases
 db.sqlite3
 echopay.db
+echopay.db-shm
+echopay.db-wal
+*.sqlite3-journal
