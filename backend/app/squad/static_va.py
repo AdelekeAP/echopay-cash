@@ -13,10 +13,36 @@ persona returns the same VA.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
 from .client import SquadClient, SquadError
+
+
+def _normalize_phone_for_squad(phone: str) -> str:
+    """Strip non-digits and normalize to 11-digit Nigerian local format.
+
+    Squad's `mobile_num` validator requires exactly 11 or 13 digits. We
+    normalize to 11-digit local (proven working via diagnostic curl —
+    13-digit international is theoretically valid per the rule but
+    untested, so we collapse to the proven path).
+
+    Examples:
+      "+234 801 234 5001" → "08012345001"
+      "08012345001"       → "08012345001" (pass-through)
+      "2348012345001"     → "08012345001" (strip 234 country code,
+                                            add leading 0)
+    """
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) == 13 and digits.startswith("234"):
+        digits = "0" + digits[3:]
+    if len(digits) != 11:
+        raise SquadError(
+            f"Invalid phone format: {phone!r} normalized to {digits!r} "
+            f"({len(digits)} digits, Squad needs 11 local)",
+        )
+    return digits
 
 
 class SquadStaticVAResult(dict):
@@ -73,7 +99,7 @@ async def create_static_va(
         "customer_identifier": customer_identifier,
         "first_name": first_name,
         "last_name": last_name,
-        "mobile_num": phone,
+        "mobile_num": _normalize_phone_for_squad(phone),
         "email": email,
         "bvn": bvn,
         "dob": dob_squad,
