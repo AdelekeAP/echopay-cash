@@ -36,7 +36,8 @@ export const PERSONAS: Persona[] = [
     account: {
       id: 1,
       account_number: '0123456789',
-      balance: '450000.00',
+      balance: '400000.00',
+      locked_balance: '50000.00',
       is_active: true,
       created_at: '2026-05-10T08:00:00Z',
       user: {
@@ -67,7 +68,8 @@ export const PERSONAS: Persona[] = [
     account: {
       id: 2,
       account_number: '0234567890',
-      balance: '125000.00',
+      balance: '110000.00',
+      locked_balance: '15000.00',
       is_active: true,
       created_at: '2026-05-10T08:00:00Z',
       user: {
@@ -98,7 +100,8 @@ export const PERSONAS: Persona[] = [
     account: {
       id: 3,
       account_number: '0345678901',
-      balance: '80000.00',
+      balance: '75000.00',
+      locked_balance: '5000.00',
       is_active: true,
       created_at: '2026-05-10T08:00:00Z',
       user: {

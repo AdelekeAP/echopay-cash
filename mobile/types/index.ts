@@ -20,6 +20,10 @@ export interface Account {
   bank: Bank;
   account_number: string;
   balance: string;
+  // PRD_FUNBI §11 — pre-allocated offline-spending budget. Optional for
+  // back-compat with code that doesn't yet read this field; defaults to
+  // "0.00" when missing.
+  locked_balance?: string;
   is_active: boolean;
   created_at: string;
 }

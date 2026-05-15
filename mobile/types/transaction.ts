@@ -20,3 +20,29 @@ export interface TransactionRow {
   created_at: string;          // ISO 8601
   settled_at?: string;
 }
+
+// --------------------------------------------------------------- outbox
+// Persisted in services/cache.ts (`echopay:outbox:<user_id>`). One row
+// per offline-queued op. Status transitions monotonically:
+//   queued → sent → (acked | rejected)
+// Rejected rows never retry. idempotency_key matches transactions.UNIQUE
+// on the server so replay is safe.
+
+export type OutboxStatus = 'queued' | 'sent' | 'acked' | 'rejected';
+
+export interface OutboxRow {
+  id: string;
+  user_id: number;
+  op_type: 'in_network';            // ready for future op types (M2 permits)
+  payload: {
+    from_user_id: number;
+    to_user_id: number;
+    amount_kobo: number;
+  };
+  idempotency_key: string;
+  attempts: number;
+  last_error?: string;
+  created_at: string;
+  next_retry_at: string;
+  status: OutboxStatus;
+}

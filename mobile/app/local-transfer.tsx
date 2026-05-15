@@ -25,6 +25,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useWallet } from '../hooks/useWallet';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { Echopay } from '../constants/theme';
 import { PERSONAS, Persona, getPersonaById } from '../constants/personas';
 import {
@@ -41,7 +42,21 @@ type Stage = 'pick-recipient' | 'enter-amount' | 'confirm-pin' | 'success';
 export default function LocalTransferScreen() {
   const router = useRouter();
   const { user, account } = useAuth();
-  const { balanceKobo, balanceNaira, applyDebit } = useWallet();
+  const {
+    balanceKobo,
+    balanceNaira,
+    lockedBalanceKobo,
+    lockedBalanceNaira,
+    applyDebit,
+    applyLockedDebit,
+  } = useWallet();
+  const { isOnline } = useNetworkStatus();
+  // When offline, the user can only spend from their pre-allocated
+  // offline budget. When online, from their main balance. The screen
+  // gates against whichever pot is "active" for this connectivity state.
+  const activeBalanceKobo = isOnline ? balanceKobo : lockedBalanceKobo;
+  const activeBalanceLabel = isOnline ? 'balance' : 'offline budget';
+  const activeBalanceNaira = isOnline ? balanceNaira : lockedBalanceNaira;
 
   const [stage, setStage] = useState<Stage>('pick-recipient');
   const [query, setQuery] = useState('');
@@ -82,7 +97,7 @@ export default function LocalTransferScreen() {
   }, [amountStr]);
 
   const amountValid =
-    amountKobo > 0 && amountKobo <= balanceKobo;
+    amountKobo > 0 && amountKobo <= activeBalanceKobo;
 
   // -------------------------------------------------- handlers
 
@@ -123,8 +138,14 @@ export default function LocalTransferScreen() {
         amountKobo,
         pin,
         idempotencyKey,
+        balanceKobo,
+        lockedBalanceKobo,
       });
-      await applyDebit(amountKobo);
+      if (res.debitedFrom === 'locked') {
+        await applyLockedDebit(amountKobo);
+      } else {
+        await applyDebit(amountKobo);
+      }
       setResult(res);
       setStage('success');
     } catch (e) {
@@ -318,18 +339,22 @@ export default function LocalTransferScreen() {
             </View>
 
             <Text style={styles.balanceHint}>
-              From your balance{' '}
-              <Text style={styles.balanceHintBold}>{balanceNaira}</Text>
+              From your {activeBalanceLabel}{' '}
+              <Text style={styles.balanceHintBold}>{activeBalanceNaira}</Text>
             </Text>
 
             <View style={styles.instantBadge}>
               <Ionicons name="flash" size={14} color={Echopay.accent} />
-              <Text style={styles.instantBadgeText}>Instant · No fees</Text>
+              <Text style={styles.instantBadgeText}>
+                {isOnline ? 'Instant · No fees' : 'Offline · Will sync when connected'}
+              </Text>
             </View>
 
-            {amountKobo > balanceKobo && (
+            {amountKobo > activeBalanceKobo && (
               <Text style={styles.errorText}>
-                That's more than your balance.
+                {isOnline
+                  ? "That's more than your balance."
+                  : "That's more than your offline budget. Connect to add more."}
               </Text>
             )}
 

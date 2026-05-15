@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, Account } from '../types';
 import { authAPI, accountAPI } from '../services/api';
+import { useOutboxDrain } from '../hooks/useOutbox';
 
 interface AuthContextType {
   user: User | null;
@@ -141,9 +142,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession,
       }}
     >
+      <OutboxDrainer />
       {children}
     </AuthContext.Provider>
   );
+}
+
+// Mounted once inside the provider so it lives one level above the
+// router and never re-mounts on screen changes. Consumes useAuth() via
+// useOutboxDrain to get the current user + token; returns null.
+function OutboxDrainer(): null {
+  useOutboxDrain();
+  return null;
 }
 
 export function useAuth() {
