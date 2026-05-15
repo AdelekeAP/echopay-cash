@@ -1,0 +1,503 @@
+# PRD — Funbi · Local Transfer
+
+**Owner:** Funbi
+**Branch:** `feat/local-transfer`
+**Anchors:** [`EchoPay_Cash_PRD.md`](../EchoPay_Cash_PRD.md) §4 (atomic ledger SQL), §5 (data model), §6 (backend endpoints), §7 (mobile screens).
+
+You own the **entire local-transfer vertical** end to end: mobile UI + backend endpoint + atomic ledger move + cache writes + tests. Everything below is yours unless explicitly marked otherwise. The one shared touchpoint is a single line in `app/(tabs)/index.tsx` that Leke leaves as a slot for your pill.
+
+---
+
+## 1. What "local transfer" is
+
+PRD §4 — "In-network transfer (both users online, no Squad call)". Two EchoPay-Cash users move money between their wallets via a single atomic ledger operation. **No Squad API call. No bank rail.** The Master VA on Squad doesn't move; only the per-user rows in `wallets` change. This is the fastest payment in the system and the cleanest demo moment after voice signup.
+
+In the demo runbook (PRD §1 / master doc §6), this is the **2:00 beat**: "Mama Risikat: 'Send ₦200 to Iya Tope' → both phones update in under a second." Your code is what makes that beat happen.
+
+---
+
+## 2. State of the code today (what exists in your lane)
+
+| File | Lines | State |
+|---|---|---|
+| `mobile/app/local-transfer.tsx` | — | **does not exist** — you create it |
+| `mobile/components/local-transfer/Pill.tsx` | — | **does not exist** — you create it |
+| `mobile/services/transfer.ts` | — | **does not exist** — you create it |
+| `mobile/services/cache.ts` | 3 | stub: `export {};` |
+| `mobile/hooks/useWallet.ts` | 3 | stub: `export {};` |
+| `mobile/hooks/useTransactions.ts` | 3 | stub: `export {};` |
+| `mobile/types/transaction.ts` | 3 | stub: `export {};` |
+| `mobile/types/wallet.ts` | 2 | stub |
+| `backend/` | — | **does not exist as a directory** — you bootstrap the FastAPI app or coordinate with Leke who is also creating backend files |
+| `backend/app/api/transfer.py` | — | **does not exist** — you create it |
+| `backend/tests/test_in_network_transfer.py` | — | **does not exist** — you create it |
+| `constants/personas.ts` | 119 | done — three personas with full nested `Account` shapes |
+| `constants/theme.ts` | 83 | done — `Echopay` palette |
+| `services/mono.ts` | 262 | done — Mono NIN + BVN mocks (Leke uses these in signup; you don't touch) |
+
+Reference screens already in the target palette: `app/login.tsx` (376 lines), `app/register.tsx` (618 lines). Copy their patterns.
+
+---
+
+## 3. The theme (the law)
+
+Import `Echopay` from `constants/theme.ts`. Never inline a hex code.
+
+| Token | Hex | Use |
+|---|---|---|
+| `pageBg` | `#FBF7F0` | warm beige page background |
+| `cardBg` | `#FFFFFF` | elevated surface (cards, inputs) |
+| `cardSoft` | `#F5EFE6` | recessed surface (input wells, footers) |
+| `accent` | `#F97316` | primary orange (CTA, brand, focus) |
+| `accentSoft` | `#FFEDD5` | tinted bg (badges) |
+| `accentPressed` | `#C2410C` | pressed CTA |
+| `accentMuted` | `#FBC192` | disabled CTA |
+| `border` | `#ECE5D7` | hairline 1px borders |
+| `text` / `textMuted` / `textSubtle` | `#1A1A1A` / `#6B6B6B` / `#9A9A9A` | text stack |
+| `success` / `successSoft` | `#0E8C5A` / `#E2F4EC` | verified, settled |
+| `danger` / `dangerSoft` | `#DC2626` / `#FEF2F2` | error states only |
+
+Rules: no gradients, no drop shadows, one accent. Border radii: input 14, card 16–18, pill 999. Type weights: body 400, label 600, heading 700, brand 800.
+
+---
+
+## 4. Mobile work
+
+### 4.1 `mobile/services/transfer.ts` (new)
+
+The single API surface for in-network transfer. Mocked first, real second.
+
+```ts
+import { Echopay } from '../constants/theme';
+import { Persona } from '../constants/personas';
+
+export interface LocalTransferRequest {
+  fromUserId: number;
+  toPersonaId: string;          // matches Persona.id from constants/personas.ts
+  amountKobo: number;            // PRD §5 — always integer kobo
+  pin: string;                   // verified locally against PERSONAS[].pin
+  idempotencyKey: string;        // sha256(fromUserId + toPersonaId + amountKobo + minute-bucket)
+}
+
+export interface LocalTransferResult {
+  txId: string;
+  status: 'completed';
+  settledAt: string;             // ISO timestamp
+  balanceAfterKobo: number;
+}
+
+export async function localTransfer(req: LocalTransferRequest): Promise<LocalTransferResult>;
+```
+
+**Mock implementation** (today, no backend yet):
+1. Sleep 350–500ms.
+2. Generate `txId = crypto.randomUUID()`.
+3. Resolve `toPersona` from `constants/personas.ts`.
+4. Write two transaction rows to `cache.ts` (one debit for sender, one credit for receiver) — but only the sender row is visible to the sender's history; the receiver row is for completeness if you later add multi-user views on the demo phone.
+5. Update sender balance via `useWallet().applyDebit(amountKobo)`.
+6. Return result.
+
+**Real implementation** (drop-in swap, no signature change): POST to `${EXPO_PUBLIC_API_BASE_URL}/transfer/in-network` with `idempotencyKey` as a header. Match the backend §4.4 below.
+
+### 4.2 `mobile/services/cache.ts` (fill)
+
+```ts
+import * as SQLite from 'expo-sqlite';
+import { Platform } from 'react-native';
+
+// On web: AsyncStorage-backed fallback (no transactional semantics, but the
+// home tab only reads from cache, so eventual consistency is fine).
+// On phone: expo-sqlite with WAL mode, schema matches PRD §15.7.
+
+export interface CachedTx {
+  id: string;
+  user_id: number;
+  type: 'in_network' | 'external_out' | 'topup' | 'qr_receive';
+  direction: 'in' | 'out';
+  amount_kobo: number;
+  counterparty: string;        // display name
+  status: 'completed' | 'pending' | 'failed';
+  created_at: string;          // ISO
+}
+
+export async function writeTransaction(tx: CachedTx): Promise<void>;
+export async function getRecentTx(userId: number, limit?: number): Promise<CachedTx[]>;
+export async function clearCache(): Promise<void>;
+```
+
+WAL mode on init (`PRAGMA journal_mode = WAL;`). `INSERT OR IGNORE` on the `id` column for idempotency.
+
+### 4.3 `mobile/hooks/useWallet.ts` (fill)
+
+```ts
+import { useAuth } from '../context/AuthContext';
+
+export function useWallet(): {
+  balanceKobo: number;
+  balanceNaira: string;        // "₦450,000.00" — formatted via utils/format.ts
+  vaNumber: string;
+  applyDebit: (kobo: number) => Promise<void>;
+  applyCredit: (kobo: number) => Promise<void>;
+};
+```
+
+`applyDebit` / `applyCredit`:
+1. Update `AuthContext.account.balance` via `setSession()` (already exists in AuthContext — re-sets with the new balance preserved).
+2. Persist to AsyncStorage (AuthContext already does this).
+3. Optimistic update — UI reflects immediately, server reconciles later.
+
+### 4.4 `mobile/types/transaction.ts` and `types/wallet.ts` (fill)
+
+```ts
+// types/transaction.ts
+export interface TransactionRow {
+  id: string;
+  type: 'in_network' | 'external_out' | 'topup' | 'qr_receive';
+  direction: 'in' | 'out';
+  amount_kobo: number;
+  counterparty: string;
+  status: 'completed' | 'pending' | 'failed';
+  created_at: string;
+}
+
+// types/wallet.ts
+export interface Wallet {
+  user_id: number;
+  squad_va_number: string;
+  balance_kobo: number;
+  updated_at: string;
+}
+```
+
+### 4.5 `mobile/app/local-transfer.tsx` (new)
+
+Three-stage single-file screen. Each stage swaps the content; back arrow always visible.
+
+#### Stage 1: `pick-recipient`
+
+```
+← Back
+
+LOCAL TRANSFER
+Send money instantly
+
+[search box: "Phone or username"]
+
+Suggested
+┌─────────────────────────────┐
+│ IT  Iya Tope                 │
+│     Okra trader · Mile 12     │
+└─────────────────────────────┘
+┌─────────────────────────────┐
+│ K   Kosi                      │
+│     Customer · Lagos          │
+└─────────────────────────────┘
+```
+
+Suggestion list = `PERSONAS` from `constants/personas.ts` filtered to exclude the current user. Tap a card → next stage.
+
+#### Stage 2: `enter-amount`
+
+```
+← Back
+
+To Iya Tope                       [small persona card with avatar+name]
+
+Amount
+
+┌──────────────────────────────┐
+│           ₦ 5,000             │   big amount input
+└──────────────────────────────┘
+
+From your balance ₦450,000.00
+
+⚡ Instant · No fees                [accentSoft pill badge]
+
+[Continue]                          primary CTA
+```
+
+Validate: amount > 0, amount ≤ balance, amount is integer kobo (multiply by 100 on submit). Tap "Continue" → next stage.
+
+#### Stage 3: `confirm-pin`
+
+```
+← Back
+
+Sending ₦5,000 to Iya Tope         [readback]
+
+Enter your PIN
+
+[• • • •]                          PIN input, autofocus
+
+[Confirm]                          primary CTA
+```
+
+On submit:
+1. Verify PIN locally against the current user's `Persona.pin` (this is hackathon scope — real Argon2id hash check goes in `secure-store` post-T2).
+2. Call `transfer.localTransfer({...})`.
+3. On success: navigate to stage 4 success card.
+4. On failure: red error inline, PIN cleared.
+
+#### Stage 4: `success`
+
+```
+       ✓ (green check)
+
+   Sent ₦5,000 to Iya Tope
+
+   Settled in 0.4s
+   TX abc123ef
+
+  [Done]                           returns to home
+```
+
+Auto-return after 1.5s.
+
+### 4.6 `mobile/components/local-transfer/Pill.tsx` (new)
+
+```tsx
+import { Pressable, Text, View } from 'react-native';
+import { Echopay } from '../../constants/theme';
+
+export function LocalTransferPill({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={...}>
+      {/* orange icon circle on cardSoft, dark label below */}
+      <Text>Local Transfer</Text>
+    </Pressable>
+  );
+}
+```
+
+Match the visual weight of Leke's other quick-action pills (`Send` external, `Receive`). Orange accent dot or icon to set it apart as the "instant" action.
+
+### 4.7 The one home-tab edit
+
+`mobile/app/(tabs)/index.tsx` — Leke leaves:
+
+```tsx
+{/* SLOT: local-transfer-pill */}
+```
+
+Inside the quick-action row. You replace it with:
+
+```tsx
+<LocalTransferPill onPress={() => router.push('/local-transfer')} />
+```
+
+This is the only edit you make to that file. Don't touch palette, layout, or other actions — that's Leke's repaint.
+
+---
+
+## 5. Backend work
+
+PRD §6 has the full backend surface. You own one route and its tests. If the backend directory doesn't exist when you start, scaffold the minimum: `backend/app/main.py`, `backend/app/core/{config,db}.py`, `backend/app/models.py` (tables from PRD §5 — at minimum `wallets`, `transactions`).
+
+### 5.1 `backend/app/models.py` (you and Leke share this file)
+
+Tables you need (from PRD §5):
+
+```sql
+CREATE TABLE wallets (
+  user_id INTEGER PRIMARY KEY,
+  squad_va_number TEXT UNIQUE NOT NULL,
+  balance_kobo INTEGER NOT NULL DEFAULT 0,
+  locked_kobo INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE transactions (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  counterparty_user_id INTEGER,
+  type TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  amount_kobo INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  idempotency_key TEXT UNIQUE NOT NULL,
+  created_at INTEGER NOT NULL,
+  settled_at INTEGER
+);
+```
+
+Coordinate with Leke if they've already added these. First writer wins; second writer reviews.
+
+### 5.2 `backend/app/api/transfer.py` (new — your file)
+
+```python
+POST /transfer/in-network
+Body: { from_user_id, to_user_id, amount_kobo, idempotency_key }
+Headers: Authorization: Bearer <token>  (verified by middleware later; for now accept any non-empty token)
+```
+
+Handler (SQLite, WAL mode, `BEGIN IMMEDIATE`):
+
+```python
+def in_network_transfer(req):
+    # 1. Idempotency check — return existing row if seen
+    existing = db.execute(
+        "SELECT * FROM transactions WHERE idempotency_key = ?",
+        (req.idempotency_key,)
+    ).fetchone()
+    if existing:
+        return existing_to_response(existing)
+
+    with db.transaction(mode='IMMEDIATE'):
+        # 2. Lock sender wallet
+        sender = db.execute(
+            "SELECT balance_kobo FROM wallets WHERE user_id = ?",
+            (req.from_user_id,)
+        ).fetchone()
+        if not sender:
+            raise HTTPException(404, "Sender wallet not found")
+
+        # 3. Balance check
+        if sender['balance_kobo'] < req.amount_kobo:
+            raise HTTPException(400, "Insufficient balance")
+        if req.amount_kobo <= 0:
+            raise HTTPException(400, "Amount must be positive")
+        if req.from_user_id == req.to_user_id:
+            raise HTTPException(400, "Self-transfer not allowed")
+
+        # 4. Atomic move
+        tx_id = str(uuid4())
+        now = int(time.time())
+        db.execute("UPDATE wallets SET balance_kobo = balance_kobo - ?, version = version + 1, updated_at = ? WHERE user_id = ?",
+                   (req.amount_kobo, now, req.from_user_id))
+        db.execute("UPDATE wallets SET balance_kobo = balance_kobo + ?, version = version + 1, updated_at = ? WHERE user_id = ?",
+                   (req.amount_kobo, now, req.to_user_id))
+
+        # 5. Insert tx row
+        db.execute("""INSERT INTO transactions
+            (id, user_id, counterparty_user_id, type, direction, amount_kobo, status, idempotency_key, created_at, settled_at)
+            VALUES (?, ?, ?, 'in_network', 'out', ?, 'completed', ?, ?, ?)""",
+            (tx_id, req.from_user_id, req.to_user_id, req.amount_kobo, req.idempotency_key, now, now))
+
+    return {
+        "success": True,
+        "data": {
+            "tx_id": tx_id,
+            "status": "completed",
+            "settled_at": iso_from_ts(now),
+            "balance_after_kobo": sender['balance_kobo'] - req.amount_kobo,
+        }
+    }
+```
+
+Retry the whole transaction up to 3 times on SQLite `BUSY` / `LOCKED` errors with exponential backoff (50ms, 100ms, 200ms). Beyond 3 attempts, return 503 — client should retry with the **same `idempotency_key`** so the next attempt either picks up the now-committed row or proceeds cleanly.
+
+### 5.3 `backend/tests/test_in_network_transfer.py` (new — your file)
+
+20+ tests. The PRD §11 Risk 3 calls reconciliation correctness "catastrophic if it fails." You write the tests that prove it doesn't.
+
+| # | Test | Expected |
+|---|---|---|
+| 1 | Happy path A→B | Both balances update; tx row inserted; response OK. |
+| 2 | Sender wallet doesn't exist | 404 |
+| 3 | Receiver wallet doesn't exist | 404 |
+| 4 | Amount = 0 | 400 |
+| 5 | Amount negative | 400 |
+| 6 | Amount > sender balance | 400; no state change |
+| 7 | Amount == sender balance (drain) | OK; sender at 0 |
+| 8 | Self-transfer (from == to) | 400 |
+| 9 | Duplicate idempotency_key, identical body | returns same `tx_id`; no double-spend |
+| 10 | Duplicate idempotency_key, different body | returns the original row (idempotency wins over body comparison — document this) |
+| 11 | Two concurrent A→B and A→C sharing the same funds | One succeeds, one fails; total preserved |
+| 12 | After successful tx: `sum(wallets.balance_kobo)` is conserved | Equal to pre-tx sum |
+| 13 | `transactions` row has correct direction and counterparty | `'out'`, `counterparty_user_id == to_user_id` |
+| 14 | Non-integer amount input (e.g. `100.5`) | 400 (parser rejects) |
+| 15 | String "abc" in `amount_kobo` | 400 |
+| 16 | Missing `idempotency_key` | 400 |
+| 17 | Idempotency_key too long (>128 chars) | 400 |
+| 18 | Wallet `version` increments by 1 on both rows | yes |
+| 19 | `settled_at` is set on completed tx | non-null |
+| 20 | High concurrency: 100 concurrent A→B (10 kobo each) | Sender drained by exactly 1000 kobo; no oversend; ledger consistent |
+
+Run with `pytest backend/tests/test_in_network_transfer.py -v`. Target: all 20 green.
+
+---
+
+## 6. Files you touch
+
+```
+mobile/app/local-transfer.tsx                  NEW
+mobile/components/local-transfer/Pill.tsx      NEW
+mobile/services/transfer.ts                    NEW
+mobile/services/cache.ts                       FILL
+mobile/hooks/useWallet.ts                      FILL
+mobile/hooks/useTransactions.ts                FILL (lightweight wrapper around cache.getRecentTx)
+mobile/types/transaction.ts                    FILL
+mobile/types/wallet.ts                         FILL
+mobile/app/(tabs)/index.tsx                    1-line edit (replace SLOT comment)
+backend/app/main.py                            NEW (if not yet scaffolded — coordinate w/ Leke)
+backend/app/core/{config,db}.py                NEW (if not yet scaffolded)
+backend/app/models.py                          NEW or shared edit
+backend/app/api/transfer.py                    NEW (POST /transfer/in-network)
+backend/tests/test_in_network_transfer.py      NEW
+```
+
+## 7. Acceptance criteria
+
+- Sign in as Mama Risikat → home shows Local Transfer pill in the quick-action row.
+- Tap pill → screen opens at stage 1 → suggestions list Iya Tope + Kosi.
+- Send ₦5,000 to Iya Tope → success card displays tx ID + "Settled in <Xms>".
+- Home balance debited by ₦5,000 immediately. Tx visible in Recent Transactions on home.
+- 20+ backend tests pass. Concurrency test (#20) passes.
+- `npm run typecheck` clean.
+- `grep "TODO" backend/app/api/transfer.py` returns nothing.
+
+## 8. Out of scope (Leke owns these)
+
+- Squad client, Static VA, Dynamic VA, external Transfer.
+- All non-`local-transfer` mobile screens (signup, transfer external, scan, receive, voice-signup, transactions tab, profile tab, home palette outside your slot).
+- The BVN finish step in `app/register.tsx`.
+- Tab bar palette.
+- Admin dashboard.
+- `services/storage.ts` (Leke fills for token + PIN hash).
+- `services/squad-api.ts` (Leke fills).
+- `hooks/useNetworkStatus.ts` (Leke fills).
+- The 31 remaining `#E31937` references outside the home pill — Leke sweeps those.
+
+## 9. Workflow
+
+```bash
+git checkout main && git pull origin main
+git checkout -b feat/local-transfer
+# work
+git push -u origin feat/local-transfer
+gh pr create --title "feat: local transfer (in-network)" --body-file <(cat <<EOF
+## Summary
+- New mobile screen \`app/local-transfer.tsx\` (recipient → amount → PIN → success)
+- New backend endpoint POST /transfer/in-network with atomic BEGIN IMMEDIATE
+- 20+ tests covering idempotency, concurrency, ledger conservation
+- LocalTransferPill drops into Leke's home slot
+
+## Test plan
+1. Sign in as Mama Risikat (PIN 1234)
+2. Tap Local Transfer → Iya Tope → ₦5,000 → 1234
+3. Confirm: home balance ₦445,000, tx in history
+4. \`pytest backend/tests/test_in_network_transfer.py\` — 20+ green
+
+Refs: docs/PRD_FUNBI.md, EchoPay_Cash_PRD.md §4 §5 §6
+EOF
+)
+```
+
+No `Co-Authored-By: Claude` trailer. No "Generated with Claude Code" footer. Commits are yours.
+
+## 10. Hour estimate
+
+| Task | Hours |
+|---|---|
+| `services/transfer.ts` + `cache.ts` + `useWallet.ts` + types | 1.5 |
+| `app/local-transfer.tsx` (4 stages) | 2.0 |
+| `LocalTransferPill` component | 0.5 |
+| Backend endpoint (handler + retry + idempotency) | 1.5 |
+| 20+ tests | 1.5 |
+| Slot edit + verification | 0.25 |
+| **Total** | **~7h** |
+
+Start with `services/transfer.ts` mocked → screen → integrate cache → pill → home edit. Backend can come after if mobile lands first; the mock keeps the demo working.
+
+Ship it.
