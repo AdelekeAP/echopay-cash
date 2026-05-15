@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { transactionAPI } from '../../services/api';
 import { Transaction } from '../../types';
+import { Echopay } from '../../constants/theme';
 
 export default function TransactionsScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -61,15 +62,15 @@ export default function TransactionsScreen() {
   const getTransactionIcon = (type: string) => {
     switch (type) {
       case 'transfer_out':
-        return { name: 'arrow-up-circle', color: '#E31937' };
+        return { name: 'arrow-up-circle', color: Echopay.danger, bg: Echopay.dangerSoft };
       case 'transfer_in':
-        return { name: 'arrow-down-circle', color: '#4CAF50' };
+        return { name: 'arrow-down-circle', color: Echopay.success, bg: Echopay.successSoft };
       case 'deposit':
-        return { name: 'add-circle', color: '#4CAF50' };
+        return { name: 'add-circle', color: Echopay.success, bg: Echopay.successSoft };
       case 'withdrawal':
-        return { name: 'remove-circle', color: '#E31937' };
+        return { name: 'remove-circle', color: Echopay.danger, bg: Echopay.dangerSoft };
       default:
-        return { name: 'swap-horizontal', color: '#666' };
+        return { name: 'swap-horizontal', color: Echopay.textMuted, bg: Echopay.cardSoft };
     }
   };
 
@@ -94,7 +95,7 @@ export default function TransactionsScreen() {
 
     return (
       <View style={styles.transactionItem}>
-        <View style={[styles.iconContainer, { backgroundColor: icon.color + '15' }]}>
+        <View style={[styles.iconContainer, { backgroundColor: icon.bg }]}>
           <Ionicons name={icon.name as any} size={24} color={icon.color} />
         </View>
         <View style={styles.transactionDetails}>
@@ -117,7 +118,7 @@ export default function TransactionsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#E31937" />
+          <ActivityIndicator size="large" color={Echopay.accent} />
         </View>
       </SafeAreaView>
     );
@@ -131,8 +132,10 @@ export default function TransactionsScreen() {
 
       {transactions.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="receipt-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyTitle}>No Transactions Yet</Text>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="receipt-outline" size={32} color={Echopay.textSubtle} />
+          </View>
+          <Text style={styles.emptyTitle}>No transactions yet</Text>
           <Text style={styles.emptySubtitle}>
             Your transaction history will appear here
           </Text>
@@ -147,7 +150,7 @@ export default function TransactionsScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor="#E31937"
+              tintColor={Echopay.accent}
             />
           }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -160,7 +163,7 @@ export default function TransactionsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Echopay.pageBg,
   },
   loadingContainer: {
     flex: 1,
@@ -169,14 +172,15 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: Echopay.cardBg,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: Echopay.border,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
+    fontSize: 22,
+    fontWeight: '700',
+    color: Echopay.text,
+    letterSpacing: -0.4,
   },
   listContent: {
     padding: 16,
@@ -184,14 +188,16 @@ const styles = StyleSheet.create({
   transactionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 14,
   },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -200,30 +206,30 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   transactionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: Echopay.text,
   },
   transactionSubtitle: {
     fontSize: 13,
-    color: '#666',
+    color: Echopay.textMuted,
     marginTop: 2,
   },
   transactionDate: {
     fontSize: 12,
-    color: '#999',
+    color: Echopay.textSubtle,
     marginTop: 4,
   },
   transactionAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4CAF50',
+    fontSize: 15,
+    fontWeight: '700',
+    color: Echopay.success,
   },
   debitAmount: {
-    color: '#E31937',
+    color: Echopay.danger,
   },
   separator: {
-    height: 12,
+    height: 10,
   },
   emptyContainer: {
     flex: 1,
@@ -231,16 +237,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 40,
   },
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Echopay.cardSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#666',
-    marginTop: 16,
+    fontSize: 17,
+    fontWeight: '700',
+    color: Echopay.textMuted,
   },
   emptySubtitle: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8,
+    fontSize: 13,
+    color: Echopay.textSubtle,
+    marginTop: 6,
     textAlign: 'center',
   },
 });

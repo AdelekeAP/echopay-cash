@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import VoiceEnrollment from '../../components/VoiceEnrollment';
 import { voiceBiometricsService, VoiceProfileResponse } from '../../services/voiceService';
+import { Echopay } from '../../constants/theme';
 
 export default function ProfileScreen() {
   const { user, account, logout } = useAuth();
@@ -44,7 +45,6 @@ export default function ProfileScreen() {
 
   const handleVoiceSettings = () => {
     if (voiceProfile) {
-      // Show options for existing enrollment
       Alert.alert(
         'Voice ID Settings',
         `Voice ID is enrolled.\n\nQuality: ${Math.round((voiceProfile.quality_score || 0) * 100)}%\nVerifications: ${voiceProfile.verification_count}`,
@@ -62,13 +62,11 @@ export default function ProfileScreen() {
         ]
       );
     } else {
-      // Start enrollment
       setShowVoiceEnrollment(true);
     }
   };
 
   const handleReenroll = async () => {
-    // Delete first, then enroll
     if (!account?.account_number) return;
 
     try {
@@ -133,19 +131,25 @@ export default function ProfileScreen() {
     );
   };
 
-  const menuItems = [
-    { icon: 'person-outline', label: 'Personal Information', onPress: () => {} },
-    { icon: 'card-outline', label: 'Card Management', onPress: () => {} },
+  const menuItems: Array<{
+    icon: string;
+    label: string;
+    onPress: () => void;
+    badge?: string;
+    badgeKind?: 'success' | 'muted';
+  }> = [
+    { icon: 'person-outline', label: 'Personal information', onPress: () => {} },
+    { icon: 'card-outline', label: 'Card management', onPress: () => {} },
     {
       icon: 'mic-outline',
       label: 'Voice ID',
       onPress: handleVoiceSettings,
-      badge: voiceProfile ? 'Active' : 'Not Set',
-      badgeColor: voiceProfile ? '#00B050' : '#666',
+      badge: voiceProfile ? 'Active' : 'Not set',
+      badgeKind: voiceProfile ? 'success' : 'muted',
     },
-    { icon: 'lock-closed-outline', label: 'Security Settings', onPress: () => {} },
+    { icon: 'lock-closed-outline', label: 'Security settings', onPress: () => {} },
     { icon: 'notifications-outline', label: 'Notifications', onPress: () => {} },
-    { icon: 'help-circle-outline', label: 'Help & Support', onPress: () => {} },
+    { icon: 'help-circle-outline', label: 'Help & support', onPress: () => {} },
     { icon: 'information-circle-outline', label: 'About', onPress: () => {} },
   ];
 
@@ -174,7 +178,7 @@ export default function ProfileScreen() {
       {/* Account Info */}
       <View style={styles.accountCard}>
         <View style={styles.accountRow}>
-          <Text style={styles.accountLabel}>Account Number</Text>
+          <Text style={styles.accountLabel}>Account number</Text>
           <Text style={styles.accountValue}>{account?.account_number}</Text>
         </View>
         <View style={styles.divider} />
@@ -187,30 +191,43 @@ export default function ProfileScreen() {
       {/* Menu Items */}
       <View style={styles.menuContainer}>
         {menuItems.map((item, index) => (
-          <TouchableOpacity
+          <Pressable
             key={index}
-            style={styles.menuItem}
+            style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
             onPress={item.onPress}
           >
-            <Ionicons name={item.icon as any} size={24} color="#666" />
+            <Ionicons name={item.icon as any} size={22} color={Echopay.textMuted} />
             <Text style={styles.menuLabel}>{item.label}</Text>
             {item.badge && (
-              <View style={[styles.badge, { backgroundColor: item.badgeColor + '20' }]}>
-                <Text style={[styles.badgeText, { color: item.badgeColor }]}>
+              <View
+                style={[
+                  styles.badge,
+                  item.badgeKind === 'success' ? styles.badgeSuccess : styles.badgeMuted,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.badgeText,
+                    item.badgeKind === 'success' ? styles.badgeTextSuccess : styles.badgeTextMuted,
+                  ]}
+                >
                   {item.badge}
                 </Text>
               </View>
             )}
-            <Ionicons name="chevron-forward" size={20} color="#ccc" />
-          </TouchableOpacity>
+            <Ionicons name="chevron-forward" size={20} color={Echopay.textSubtle} />
+          </Pressable>
         ))}
       </View>
 
-      {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={24} color="#E31937" />
+      {/* Logout Button — secondary outline */}
+      <Pressable
+        style={({ pressed }) => [styles.logoutButton, pressed && styles.logoutButtonPressed]}
+        onPress={handleLogout}
+      >
+        <Ionicons name="log-out-outline" size={22} color={Echopay.accent} />
         <Text style={styles.logoutText}>Logout</Text>
-      </TouchableOpacity>
+      </Pressable>
 
       <Text style={styles.version}>Version 1.0.0</Text>
 
@@ -229,64 +246,69 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Echopay.pageBg,
   },
   header: {
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: Echopay.cardBg,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: Echopay.border,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
+    fontSize: 22,
+    fontWeight: '700',
+    color: Echopay.text,
+    letterSpacing: -0.4,
   },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 20,
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
+    padding: 18,
     margin: 16,
     borderRadius: 16,
   },
   avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#E31937',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: Echopay.cardSoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontSize: 22,
+    fontWeight: '700',
+    color: Echopay.text,
   },
   userInfo: {
     marginLeft: 16,
     flex: 1,
   },
   userName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontSize: 17,
+    fontWeight: '700',
+    color: Echopay.text,
   },
   userEmail: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
+    fontSize: 13,
+    color: Echopay.textMuted,
+    marginTop: 3,
   },
   userPhone: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13,
+    color: Echopay.textMuted,
     marginTop: 2,
   },
   accountCard: {
-    backgroundColor: '#fff',
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
     marginHorizontal: 16,
     borderRadius: 16,
-    padding: 16,
+    padding: 14,
     marginBottom: 16,
   },
   accountRow: {
@@ -295,21 +317,23 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   accountLabel: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13,
+    color: Echopay.textMuted,
   },
   accountValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: Echopay.text,
   },
   divider: {
     height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 8,
+    backgroundColor: Echopay.border,
+    marginVertical: 6,
   },
   menuContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
     marginHorizontal: 16,
     borderRadius: 16,
     overflow: 'hidden',
@@ -317,47 +341,68 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: Echopay.border,
+  },
+  menuItemPressed: {
+    backgroundColor: Echopay.cardSoft,
   },
   menuLabel: {
     flex: 1,
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: Echopay.text,
     marginLeft: 12,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    marginRight: 8,
+  },
+  badgeSuccess: {
+    backgroundColor: Echopay.successSoft,
+  },
+  badgeMuted: {
+    backgroundColor: Echopay.cardSoft,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  badgeTextSuccess: {
+    color: Echopay.success,
+  },
+  badgeTextMuted: {
+    color: Echopay.textMuted,
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     margin: 16,
-    padding: 16,
-    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E31937',
+    borderColor: Echopay.accent,
+    gap: 8,
+  },
+  logoutButtonPressed: {
+    backgroundColor: Echopay.accentSoft,
   },
   logoutText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#E31937',
-    marginLeft: 8,
+    color: Echopay.accent,
   },
   version: {
     textAlign: 'center',
     fontSize: 12,
-    color: '#999',
-    marginBottom: 20,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginRight: 8,
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '600',
+    color: Echopay.textSubtle,
+    marginBottom: 24,
   },
 });
