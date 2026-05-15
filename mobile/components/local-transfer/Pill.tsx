@@ -1,7 +1,6 @@
 // LocalTransferPill — the home-tab quick-action that opens the local
 // transfer flow. Visually parallels Leke's Send and Receive pills in
-// app/(tabs)/index.tsx; differentiated by the lightning bolt icon to
-// signal "instant, in-network."
+// app/(tabs)/index.tsx; uses a cash icon to read as "money transfer."
 
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +13,7 @@ export function LocalTransferPill({ onPress }: { onPress: () => void }) {
       style={({ pressed }) => [styles.pill, pressed && styles.pillPressed]}
     >
       <View style={styles.iconCircle}>
-        <Ionicons name="flash-outline" size={22} color={Echopay.accent} />
+        <Ionicons name="cash-outline" size={22} color={Echopay.accent} />
       </View>
       <Text style={styles.label}>Local</Text>
     </Pressable>

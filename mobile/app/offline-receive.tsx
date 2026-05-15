@@ -70,8 +70,11 @@ export default function OfflineReceiveScreen() {
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Pressable
-          onPress={() => router.back()}
-          style={styles.back}
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace('/(tabs)');
+          }}
+          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}
           hitSlop={12}
         >
           <Ionicons name="chevron-back" size={22} color={Echopay.text} />
@@ -138,12 +141,16 @@ const styles = StyleSheet.create({
   scroll: { padding: 24, paddingTop: 16, paddingBottom: 60 },
 
   back: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: -10,
     marginBottom: 24,
+  },
+  backPressed: {
+    backgroundColor: Echopay.cardSoft,
   },
 
   title: {

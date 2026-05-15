@@ -268,8 +268,11 @@ export default function OfflineScanScreen() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <Pressable
-          onPress={() => router.back()}
-          style={styles.backRow}
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace('/(tabs)');
+          }}
+          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}
           hitSlop={12}
         >
           <Ionicons name="chevron-back" size={22} color={Echopay.text} />
@@ -406,7 +409,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Echopay.pageBg },
   scrollContent: { padding: 22, paddingTop: 14, paddingBottom: 50 },
 
-  backRow: { paddingVertical: 8, marginBottom: 14 },
+  back: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -10,
+    marginBottom: 14,
+  },
+  backPressed: {
+    backgroundColor: Echopay.cardSoft,
+  },
 
   eyebrow: {
     fontSize: 11,

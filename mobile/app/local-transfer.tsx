@@ -104,11 +104,16 @@ export default function LocalTransferScreen() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <Pressable
-          onPress={() =>
-            lt.stage === 'pick-recipient' ? router.back() : lt.back()
-          }
+          onPress={() => {
+            if (lt.stage !== 'pick-recipient') {
+              lt.back();
+              return;
+            }
+            if (router.canGoBack()) router.back();
+            else router.replace('/(tabs)');
+          }}
           hitSlop={12}
-          style={styles.back}
+          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}
         >
           <Ionicons name="chevron-back" size={22} color={Echopay.text} />
         </Pressable>
@@ -318,12 +323,16 @@ const styles = StyleSheet.create({
 
   // header
   back: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: -10,
-    marginBottom: 28,
+    marginBottom: 24,
+  },
+  backPressed: {
+    backgroundColor: Echopay.cardSoft,
   },
   title: {
     fontSize: 32,
