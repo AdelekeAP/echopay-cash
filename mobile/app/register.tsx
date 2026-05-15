@@ -44,6 +44,7 @@ export default function RegisterScreen() {
   const [pinConfirm, setPinConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [vaNumber, setVaNumber] = useState('');
+  const [bvnPairsOpen, setBvnPairsOpen] = useState(false);
 
   // -------------------------------------------------------- helpers
 
@@ -250,10 +251,104 @@ export default function RegisterScreen() {
           </>
         )}
 
+        {stage === 'enter-bvn' && verified && (
+          <>
+            <View style={styles.heroBlock}>
+              <Text style={styles.heroEyebrow}>STEP 2 · BANK KYC</Text>
+              <Text style={styles.heroTitle}>Confirm your BVN</Text>
+              <Text style={styles.heroSubtitle}>
+                We cross-check your BVN against the NIBSS database to
+                tie this wallet to your bank identity.
+              </Text>
+            </View>
+
+            <View style={styles.contextCard}>
+              <Text style={styles.contextCardLabel}>NIN verified</Text>
+              <Text style={styles.contextCardName}>
+                {verified.first_name}{' '}
+                {verified.middle_name ? `${verified.middle_name} ` : ''}
+                {verified.last_name}
+              </Text>
+              <Text style={styles.contextCardMeta}>
+                {formatDob(verified.date_of_birth)}
+              </Text>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Bank Verification Number</Text>
+              <TextInput
+                style={styles.ninInput}
+                value={formattedBvn}
+                onChangeText={(t) => setBvn(t.replace(/\D/g, '').slice(0, 11))}
+                keyboardType="number-pad"
+                maxLength={13}
+                placeholder="0000 0000 000"
+                placeholderTextColor={Echopay.textSubtle}
+                autoFocus
+              />
+              <Text style={styles.fieldHint}>
+                11 digits. Find it by dialling *565*0# on your registered phone.
+              </Text>
+            </View>
+
+            {error && <Text style={styles.errorText}>{error}</Text>}
+
+            <Pressable
+              onPress={handleBvnVerify}
+              disabled={bvn.replace(/\D/g, '').length !== 11}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                bvn.replace(/\D/g, '').length !== 11 && styles.primaryButtonDisabled,
+                pressed && styles.primaryButtonPressed,
+              ]}
+            >
+              <Text style={styles.primaryButtonText}>Verify BVN</Text>
+            </Pressable>
+
+            <View style={styles.providerBadge}>
+              <View style={styles.providerDot} />
+              <Text style={styles.providerText}>
+                Powered by <Text style={styles.providerBold}>Mono</Text> ·
+                BVN lookup via NIBSS
+              </Text>
+            </View>
+
+            <View style={styles.demoNins}>
+              <Pressable
+                onPress={() => setBvnPairsOpen((v) => !v)}
+                style={styles.demoToggle}
+                hitSlop={8}
+              >
+                <Text style={styles.demoTitle}>Test BVN pairs</Text>
+                <Text style={styles.demoToggleCaret}>
+                  {bvnPairsOpen ? '−' : '+'}
+                </Text>
+              </Pressable>
+              {bvnPairsOpen &&
+                [
+                  { nin: '12345678901', bvn: '22288899900', who: 'Adunni Bello' },
+                  { nin: '22334455667', bvn: '11122233344', who: 'Tunde Adeyemi' },
+                  { nin: '98765432101', bvn: '55566677788', who: 'Chioma Okafor' },
+                ].map((d) => (
+                  <Pressable
+                    key={d.bvn}
+                    onPress={() => setBvn(d.bvn)}
+                    style={styles.demoRow}
+                  >
+                    <Text style={styles.demoNin}>
+                      NIN {d.nin} → BVN {d.bvn}
+                    </Text>
+                    <Text style={styles.demoName}>{d.who}</Text>
+                  </Pressable>
+                ))}
+            </View>
+          </>
+        )}
+
         {stage === 'pin' && verified && (
           <>
             <View style={styles.heroBlock}>
-              <Text style={styles.heroEyebrow}>STEP 2 · SECURITY</Text>
+              <Text style={styles.heroEyebrow}>STEP 3 · SECURITY</Text>
               <Text style={styles.heroTitle}>Set your PIN</Text>
               <Text style={styles.heroSubtitle}>
                 4 digits. You'll use this to confirm payments.
@@ -262,7 +357,7 @@ export default function RegisterScreen() {
 
             <View style={styles.verifiedCard}>
               <View style={styles.verifiedBadge}>
-                <Text style={styles.verifiedBadgeText}>✓ VERIFIED</Text>
+                <Text style={styles.verifiedBadgeText}>✓ NIN + BVN VERIFIED</Text>
               </View>
               <Text style={styles.verifiedName}>
                 {verified.first_name}{' '}
@@ -285,6 +380,22 @@ export default function RegisterScreen() {
                   {verified.nin.replace(/(\d{4})(\d{4})(\d{3})/, '$1 $2 $3')}
                 </Text>
               </View>
+              {bvnVerified && (
+                <View style={styles.verifiedRow}>
+                  <Text style={styles.verifiedLabel}>BVN</Text>
+                  <Text style={styles.verifiedValue}>
+                    {bvnVerified.bvn.replace(/(\d{4})(\d{4})(\d{3})/, '$1 $2 $3')}
+                  </Text>
+                </View>
+              )}
+              {bvnVerified && (
+                <View style={styles.verifiedRow}>
+                  <Text style={styles.verifiedLabel}>Enrolled at</Text>
+                  <Text style={styles.verifiedValue}>
+                    {bvnVerified.enrollment_bank} · {bvnVerified.enrollment_branch}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.pinRow}>
@@ -527,7 +638,7 @@ const styles = StyleSheet.create({
   verifiedLabel: { fontSize: 13, color: Echopay.textMuted },
   verifiedValue: { fontSize: 13, color: Echopay.text, fontWeight: '500' },
 
-  // Demo NINs panel
+  // Demo NINs / BVN-pairs panel
   demoNins: {
     marginTop: 28,
     padding: 16,
@@ -541,6 +652,17 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     marginBottom: 12,
   },
+  demoToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  demoToggleCaret: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Echopay.textMuted,
+    marginBottom: 12,
+  },
   demoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -548,6 +670,33 @@ const styles = StyleSheet.create({
   },
   demoNin: { fontSize: 13, color: Echopay.text, fontWeight: '600' },
   demoName: { fontSize: 13, color: Echopay.textMuted },
+
+  // BVN context card (shows NIN-verified identity)
+  contextCard: {
+    backgroundColor: Echopay.cardSoft,
+    borderWidth: 1,
+    borderColor: Echopay.border,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 18,
+  },
+  contextCardLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Echopay.success,
+    letterSpacing: 1.2,
+    marginBottom: 6,
+  },
+  contextCardName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Echopay.text,
+  },
+  contextCardMeta: {
+    fontSize: 12,
+    color: Echopay.textMuted,
+    marginTop: 2,
+  },
 
   bottomLink: { alignItems: 'center', marginTop: 28 },
   bottomLinkText: { fontSize: 14, color: Echopay.textMuted },

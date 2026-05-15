@@ -1,24 +1,20 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
   RefreshControl,
-  Dimensions,
-  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { transactionAPI } from '../../services/api';
 import { Transaction } from '../../types';
-
-const { width } = Dimensions.get('window');
+import { Echopay } from '../../constants/theme';
 
 export default function HomeScreen() {
   const { user, account, refreshAccount } = useAuth();
@@ -74,22 +70,15 @@ export default function HomeScreen() {
   const getTransactionIcon = (type: string) => {
     switch (type) {
       case 'transfer_out':
-        return { name: 'arrow-up', color: '#E31937', bg: '#FFE5E8' };
+        return { name: 'arrow-up', color: Echopay.danger, bg: Echopay.dangerSoft };
       case 'transfer_in':
-        return { name: 'arrow-down', color: '#00C853', bg: '#E8F5E9' };
+        return { name: 'arrow-down', color: Echopay.success, bg: Echopay.successSoft };
       case 'deposit':
-        return { name: 'add', color: '#00C853', bg: '#E8F5E9' };
+        return { name: 'add', color: Echopay.success, bg: Echopay.successSoft };
       default:
-        return { name: 'swap-horizontal', color: '#666', bg: '#f0f0f0' };
+        return { name: 'swap-horizontal', color: Echopay.textMuted, bg: Echopay.cardSoft };
     }
   };
-
-  const quickActions = [
-    { icon: 'paper-plane', label: 'Send', color: '#E31937', bg: '#FFE5E8', route: '/transfer' },
-    { icon: 'download', label: 'Request', color: '#7C4DFF', bg: '#EDE7F6', route: null },
-    { icon: 'flash', label: 'Airtime', color: '#FF9800', bg: '#FFF3E0', route: null },
-    { icon: 'receipt', label: 'Bills', color: '#00BCD4', bg: '#E0F7FA', route: null },
-  ];
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -97,7 +86,7 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#E31937" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Echopay.accent} />
         }
       >
         {/* Header */}
@@ -114,125 +103,107 @@ export default function HomeScreen() {
             </View>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.iconButton}>
-              <Ionicons name="search-outline" size={22} color="#333" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton}>
-              <Ionicons name="notifications-outline" size={22} color="#333" />
+            <Pressable style={styles.iconButton} hitSlop={8}>
+              <Ionicons name="search-outline" size={22} color={Echopay.text} />
+            </Pressable>
+            <Pressable style={styles.iconButton} hitSlop={8}>
+              <Ionicons name="notifications-outline" size={22} color={Echopay.text} />
               <View style={styles.notificationBadge} />
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
 
-        {/* Premium Balance Card */}
-        <View style={styles.cardContainer}>
-          <LinearGradient
-            colors={['#E31937', '#B71C1C']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.balanceCard}
-          >
-            <View style={styles.cardPattern}>
-              <View style={styles.circle1} />
-              <View style={styles.circle2} />
+        {/* Balance card — flat (no gradient per palette law) */}
+        <View style={styles.balanceCard}>
+          <View style={styles.cardHeader}>
+            <View style={styles.bankBadge}>
+              <Ionicons name="business-outline" size={14} color={Echopay.text} />
+              <Text style={styles.bankBadgeText}>{account?.bank?.name || 'Bank'}</Text>
             </View>
+            <Pressable onPress={() => setShowBalance(!showBalance)} hitSlop={10}>
+              <Ionicons
+                name={showBalance ? 'eye-outline' : 'eye-off-outline'}
+                size={22}
+                color={Echopay.textMuted}
+              />
+            </Pressable>
+          </View>
 
-            <View style={styles.cardHeader}>
-              <View style={styles.bankBadge}>
-                <Ionicons name="business" size={14} color="#fff" />
-                <Text style={styles.bankBadgeText}>{account?.bank?.name || 'Bank'}</Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowBalance(!showBalance)}>
-                <Ionicons
-                  name={showBalance ? 'eye-outline' : 'eye-off-outline'}
-                  size={22}
-                  color="rgba(255,255,255,0.8)"
-                />
-              </TouchableOpacity>
-            </View>
+          <View style={styles.balanceSection}>
+            <Text style={styles.balanceLabel}>Available balance</Text>
+            <Text style={styles.balanceAmount}>
+              {showBalance ? formatCurrency(account?.balance || '0') : '••••••'}
+            </Text>
+            <Text style={styles.balanceMeta}>As of just now</Text>
+          </View>
 
-            <View style={styles.balanceSection}>
-              <Text style={styles.balanceLabel}>Total Balance</Text>
-              <Text style={styles.balanceAmount}>
-                {showBalance ? formatCurrency(account?.balance || '0') : '••••••'}
-              </Text>
+          <View style={styles.cardFooter}>
+            <View>
+              <Text style={styles.accountLabel}>Account number</Text>
+              <Text style={styles.accountNumber}>{account?.account_number}</Text>
             </View>
-
-            <View style={styles.cardFooter}>
-              <View>
-                <Text style={styles.accountLabel}>Account Number</Text>
-                <Text style={styles.accountNumber}>{account?.account_number}</Text>
-              </View>
-              <View style={styles.cardChip}>
-                <Ionicons name="wifi" size={20} color="rgba(255,255,255,0.6)" style={{ transform: [{ rotate: '90deg' }] }} />
-              </View>
-            </View>
-          </LinearGradient>
+            <Pressable style={styles.copyPill} hitSlop={6}>
+              <Ionicons name="copy-outline" size={14} color={Echopay.textMuted} />
+              <Text style={styles.copyPillText}>Copy</Text>
+            </Pressable>
+          </View>
         </View>
 
-        {/* Quick Actions */}
+        {/* Quick actions — Send + SLOT (Funbi's pill) + Receive */}
         <View style={styles.quickActionsContainer}>
-          {quickActions.map((action, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.quickActionItem}
-              onPress={() => action.route && router.push(action.route as any)}
-            >
-              <View style={[styles.quickActionIcon, { backgroundColor: action.bg }]}>
-                <Ionicons name={action.icon as any} size={22} color={action.color} />
-              </View>
-              <Text style={styles.quickActionLabel}>{action.label}</Text>
-            </TouchableOpacity>
-          ))}
+          <Pressable style={styles.actionPill} onPress={() => router.push('/transfer')}>
+            <View style={styles.actionPillIcon}>
+              <Ionicons name="paper-plane-outline" size={22} color={Echopay.accent} />
+            </View>
+            <Text style={styles.actionPillLabel}>Send</Text>
+          </Pressable>
+          {/* SLOT: local-transfer-pill */}
+          <Pressable style={styles.actionPill} onPress={() => router.push('/receive')}>
+            <View style={styles.actionPillIcon}>
+              <Ionicons name="qr-code-outline" size={22} color={Echopay.accent} />
+            </View>
+            <Text style={styles.actionPillLabel}>Receive</Text>
+          </Pressable>
         </View>
 
-        {/* Promo Card */}
-        <TouchableOpacity style={styles.promoCard}>
-          <LinearGradient
-            colors={['#1a1a1a', '#333']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.promoGradient}
-          >
-            <View style={styles.promoLeft}>
-              <View style={styles.promoIconContainer}>
-                <Ionicons name="mic" size={24} color="#E31937" />
-              </View>
-              <View style={styles.promoTextContainer}>
-                <Text style={styles.promoTitle}>Voice Banking</Text>
-                <Text style={styles.promoSubtitle}>Try "Send 5000 to Ade"</Text>
-              </View>
+        {/* Voice-banking hint */}
+        <Pressable style={styles.voiceHintCard}>
+          <View style={styles.voiceHintLeft}>
+            <View style={styles.voiceHintIcon}>
+              <Ionicons name="mic" size={22} color={Echopay.accent} />
             </View>
-            <View style={styles.promoArrow}>
-              <Ionicons name="arrow-forward" size={20} color="#fff" />
+            <View>
+              <Text style={styles.voiceHintTitle}>Voice banking</Text>
+              <Text style={styles.voiceHintSubtitle}>Try &ldquo;Send ₦5,000 to Iya Tope&rdquo;</Text>
             </View>
-          </LinearGradient>
-        </TouchableOpacity>
+          </View>
+          <Ionicons name="arrow-forward" size={18} color={Echopay.textMuted} />
+        </Pressable>
 
         {/* Recent Transactions */}
         <View style={styles.transactionsSection}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Transactions</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/transactions')}>
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
+            <Text style={styles.sectionTitle}>Recent transactions</Text>
+            <Pressable onPress={() => router.push('/(tabs)/transactions')} hitSlop={8}>
+              <Text style={styles.seeAllText}>See all</Text>
+            </Pressable>
           </View>
 
           <View style={styles.transactionsList}>
             {transactions.length === 0 ? (
               <View style={styles.emptyState}>
                 <View style={styles.emptyIconContainer}>
-                  <Ionicons name="receipt-outline" size={32} color="#ccc" />
+                  <Ionicons name="receipt-outline" size={32} color={Echopay.textSubtle} />
                 </View>
                 <Text style={styles.emptyTitle}>No transactions yet</Text>
                 <Text style={styles.emptySubtitle}>Your activity will appear here</Text>
               </View>
             ) : (
-              transactions.map((txn, index) => {
+              transactions.map((txn) => {
                 const icon = getTransactionIcon(txn.transaction_type);
                 const isDebit = txn.transaction_type === 'transfer_out';
                 return (
-                  <TouchableOpacity key={txn.id} style={styles.transactionItem}>
+                  <Pressable key={txn.id} style={styles.transactionItem}>
                     <View style={[styles.txnIconContainer, { backgroundColor: icon.bg }]}>
                       <Ionicons name={icon.name as any} size={18} color={icon.color} />
                     </View>
@@ -247,7 +218,7 @@ export default function HomeScreen() {
                     <Text style={[styles.txnAmount, isDebit && styles.txnAmountDebit]}>
                       {isDebit ? '-' : '+'}{formatCurrency(txn.amount)}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })
             )}
@@ -271,7 +242,7 @@ function getGreeting() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: Echopay.pageBg,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -290,12 +261,12 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#E31937',
+    backgroundColor: Echopay.cardSoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    color: '#fff',
+    color: Echopay.text,
     fontSize: 16,
     fontWeight: '700',
   },
@@ -304,12 +275,12 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 13,
-    color: '#666',
+    color: Echopay.textMuted,
   },
   userName: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1a1a1a',
+    color: Echopay.text,
   },
   headerRight: {
     flexDirection: 'row',
@@ -319,14 +290,11 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#fff',
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
   },
   notificationBadge: {
     position: 'absolute',
@@ -335,41 +303,17 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E31937',
+    backgroundColor: Echopay.accent,
   },
-  cardContainer: {
-    marginTop: 8,
-  },
+
+  // Balance card — flat
   balanceCard: {
-    borderRadius: 24,
-    padding: 24,
-    overflow: 'hidden',
-    minHeight: 200,
-  },
-  cardPattern: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  circle1: {
-    position: 'absolute',
-    top: -60,
-    right: -60,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  circle2: {
-    position: 'absolute',
-    bottom: -80,
-    left: -40,
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginTop: 8,
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
+    borderRadius: 18,
+    padding: 22,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -379,166 +323,166 @@ const styles = StyleSheet.create({
   bankBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: Echopay.cardSoft,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 999,
     gap: 6,
   },
   bankBadgeText: {
-    color: '#fff',
+    color: Echopay.text,
     fontSize: 12,
     fontWeight: '600',
   },
   balanceSection: {
-    marginTop: 24,
+    marginTop: 22,
   },
   balanceLabel: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.7)',
-    marginBottom: 8,
+    color: Echopay.textMuted,
+    marginBottom: 6,
   },
   balanceAmount: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: -1,
+    fontSize: 32,
+    fontWeight: '800',
+    color: Echopay.text,
+    letterSpacing: -0.6,
+  },
+  balanceMeta: {
+    fontSize: 12,
+    color: Echopay.textSubtle,
+    marginTop: 4,
   },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginTop: 24,
+    marginTop: 18,
   },
   accountLabel: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.6)',
+    color: Echopay.textMuted,
     marginBottom: 4,
   },
   accountNumber: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#fff',
-    letterSpacing: 2,
+    color: Echopay.text,
+    letterSpacing: 1.5,
   },
-  cardChip: {
-    width: 40,
-    height: 30,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 6,
-    justifyContent: 'center',
+  copyPill: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Echopay.cardSoft,
   },
+  copyPillText: {
+    fontSize: 12,
+    color: Echopay.textMuted,
+    fontWeight: '600',
+  },
+
+  // Quick actions
   quickActionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 24,
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    justifyContent: 'space-around',
+    marginTop: 20,
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
+    borderRadius: 18,
+    padding: 18,
   },
-  quickActionItem: {
+  actionPill: {
     alignItems: 'center',
     flex: 1,
   },
-  quickActionIcon: {
+  actionPillIcon: {
     width: 52,
     height: 52,
     borderRadius: 16,
+    backgroundColor: Echopay.accentSoft,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
-  quickActionLabel: {
-    fontSize: 12,
+  actionPillLabel: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#333',
+    color: Echopay.text,
   },
-  promoCard: {
-    marginTop: 20,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  promoGradient: {
+
+  // Voice-banking hint
+  voiceHintCard: {
+    marginTop: 18,
+    backgroundColor: Echopay.cardSoft,
+    borderRadius: 14,
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
   },
-  promoLeft: {
+  voiceHintLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  promoIconContainer: {
-    width: 44,
-    height: 44,
+  voiceHintIcon: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
-    backgroundColor: 'rgba(227,25,55,0.15)',
+    backgroundColor: Echopay.accentSoft,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
   },
-  promoTextContainer: {
-    marginLeft: 14,
-  },
-  promoTitle: {
-    fontSize: 15,
+  voiceHintTitle: {
+    fontSize: 14,
     fontWeight: '700',
-    color: '#fff',
+    color: Echopay.text,
   },
-  promoSubtitle: {
+  voiceHintSubtitle: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.6)',
+    color: Echopay.textMuted,
     marginTop: 2,
   },
-  promoArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+
+  // Transactions
   transactionsSection: {
-    marginTop: 24,
+    marginTop: 22,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#1a1a1a',
+    color: Echopay.text,
   },
   seeAllText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#E31937',
+    color: Echopay.accent,
   },
   transactionsList: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
+    borderRadius: 18,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
   },
   transactionItem: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
+    borderBottomColor: Echopay.border,
   },
   txnIconContainer: {
     width: 44,
@@ -554,20 +498,20 @@ const styles = StyleSheet.create({
   txnTitle: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: Echopay.text,
   },
   txnSubtitle: {
     fontSize: 12,
-    color: '#999',
+    color: Echopay.textSubtle,
     marginTop: 3,
   },
   txnAmount: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#00C853',
+    color: Echopay.success,
   },
   txnAmountDebit: {
-    color: '#E31937',
+    color: Echopay.danger,
   },
   emptyState: {
     alignItems: 'center',
@@ -577,19 +521,19 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Echopay.cardSoft,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#666',
+    color: Echopay.textMuted,
   },
   emptySubtitle: {
     fontSize: 13,
-    color: '#999',
+    color: Echopay.textSubtle,
     marginTop: 4,
   },
 });
