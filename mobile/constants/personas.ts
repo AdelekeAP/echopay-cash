@@ -16,10 +16,21 @@ export interface Persona {
   pin: string;           // demo only — real flow stores Argon2id hash in secure-store
   user: User;
   account: Account;
+  // ed25519 keypair for offline-payment signing (master doc §4.2).
+  // Demo-only: in production these would be generated on the device
+  // at signup and never written to a JS bundle. The deterministic
+  // seed (sha256("echopay-demo:<customer_identifier>")) matches the
+  // pubkeys seeded in backend/seed.py.
+  ed25519PrivKeyB64: string;
+  ed25519PubKeyB64: string;
 }
 
 export const PERSONAS: Persona[] = [
   {
+    // ed25519 seed (32 bytes b64) and pubkey (32 bytes b64) — matches
+    // backend/seed.py "mama_risikat_001".
+    ed25519PrivKeyB64: 'fBVAVFqgRrvrKi7157yvWm7YFqIOrAT4xEVBRRtc6/o=',
+    ed25519PubKeyB64:  '999uiLtwK4u4k3NhG5SB6xzPTs9uB6MkDsPH9Z5t8yw=',
     id: 'mama_risikat',
     display_name: 'Mama Risikat',
     role: 'Fish seller · Mile 12 Market',
@@ -52,6 +63,8 @@ export const PERSONAS: Persona[] = [
     },
   },
   {
+    ed25519PrivKeyB64: 'EHbzjmSPqhvBsvGYWBHBX+ilYqSoSkytbBVdWk1BKos=',
+    ed25519PubKeyB64:  'o5hjpq2lYZfj4Z/XC6X2es7G2Syn+1cbtXtovEihU1o=',
     id: 'iya_tope',
     display_name: 'Iya Tope',
     role: 'Okra trader · Mile 12 Market',
@@ -84,6 +97,8 @@ export const PERSONAS: Persona[] = [
     },
   },
   {
+    ed25519PrivKeyB64: 'zfEk1Btao3Hjf5+8iZDyjCuX/m5mq3BHbK1tEPPYgfk=',
+    ed25519PubKeyB64:  'E2tSlHCYKv56LLXSlmXbrmBK5vyXRHZKCrvGExDxG/g=',
     id: 'kosi',
     display_name: 'Kosi',
     role: 'Customer · Lagos',

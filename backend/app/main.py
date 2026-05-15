@@ -21,6 +21,9 @@ from .api.transfer import router as transfer_router
 from .api.wallet import router as wallet_router
 from .api.sync import router as sync_router
 from .api.auth import router as auth_router
+from .api.permits import router as permits_router
+from .api.offline_sync import router as offline_sync_router
+from .core.crypto import get_server_pubkey_b64
 
 settings = get_settings()
 
@@ -56,3 +59,13 @@ app.include_router(transfer_router)
 app.include_router(wallet_router)
 app.include_router(sync_router)
 app.include_router(auth_router)
+app.include_router(permits_router)
+app.include_router(offline_sync_router)
+
+
+@app.get("/crypto/server-pubkey", tags=["meta"])
+def server_pubkey() -> dict:
+    """Mobile pins this once at boot. Used to verify permit signatures
+    fully offline (master doc §4.2). Rotate => mobile re-pin.
+    """
+    return {"success": True, "data": {"ed25519_pub_b64": get_server_pubkey_b64()}}

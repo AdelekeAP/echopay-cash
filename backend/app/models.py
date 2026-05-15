@@ -42,6 +42,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(160), nullable=False)
     bvn: Mapped[Optional[str]] = mapped_column(String(11), nullable=True)
     dob: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    # ed25519 public key (base64, 32 bytes raw → 44-char b64). Pinned at
+    # signup, used by /sync/submit to verify the sender's tx signature
+    # and the receiver's countersign on offline payments (master doc §4.2).
+    ed25519_pub_b64: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[int] = mapped_column(BigInteger, default=now_unix, nullable=False)
 
     wallet: Mapped[Optional["Wallet"]] = relationship(back_populates="user", uselist=False)
@@ -97,6 +101,60 @@ class Transaction(Base):
             name="transactions_status_enum",
         ),
     )
+
+
+class Permit(Base):
+    """Server-issued ed25519-signed spending permit (master doc §4.2).
+
+    Issued while the user is online. The phone caches it and can spend
+    against it while offline, capped at max_amount_kobo and bounded by
+    expires_at. Redeemed atomically on /sync/submit via:
+        UPDATE permits SET status='redeemed' WHERE permit_id=:id
+          AND status='outstanding' AND :now < expires_at
+          RETURNING permit_id, max_amount_kobo;
+    0 rows back → double-spend / expired → reject + flag.
+    """
+    __tablename__ = "permits"
+
+    permit_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    device_fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    max_amount_kobo: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="outstanding")
+    issued_at: Mapped[int] = mapped_column(BigInteger, default=now_unix, nullable=False)
+    expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    redeemed_by_tx_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    redeemed_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # Server's ed25519 signature over the canonical permit payload
+    # ({permit_id, user_id, device_fingerprint, max_amount_kobo,
+    #   issued_at, expires_at}) — base64.
+    server_sig_b64: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("max_amount_kobo > 0", name="permits_positive_max"),
+        CheckConstraint(
+            "status IN ('outstanding', 'redeemed', 'expired')",
+            name="permits_status_enum",
+        ),
+    )
+
+
+class Nonce(Base):
+    """Replay-protection for offline txs (master doc §4.2).
+
+    Every offline transaction carries a sender-generated nonce.
+    (sender_user_id, nonce) is UNIQUE forever, so the same QR can never
+    be successfully sync'd twice — independent of permit redemption.
+    """
+    __tablename__ = "nonces"
+
+    sender_user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), primary_key=True
+    )
+    nonce: Mapped[str] = mapped_column(String(64), primary_key=True)
+    used_at: Mapped[int] = mapped_column(BigInteger, default=now_unix, nullable=False)
 
 
 def create_all() -> None:

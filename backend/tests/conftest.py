@@ -49,10 +49,13 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
         "app.api.transfer",
         "app.api.wallet",
         "app.api.sync",
+        "app.api.permits",
+        "app.api.offline_sync",
         "app.main",
         "app.models",
         "app.core.db",
         "app.core.config",
+        "app.core.crypto",
     ]:
         sys.modules.pop(mod, None)
 

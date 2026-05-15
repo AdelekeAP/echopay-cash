@@ -33,6 +33,10 @@ PERSONAS = [
         "va_number": "0123456789",
         "balance_kobo": 40_000_000,      # ₦400,000 online
         "locked_kobo":   5_000_000,      # ₦50,000 already in offline budget
+        # ed25519 pubkey, base64. Matches the private key baked into
+        # mobile/constants/personas.ts for the demo. Deterministic
+        # seed (sha256("echopay-demo:mama_risikat_001")).
+        "ed25519_pub_b64": "999uiLtwK4u4k3NhG5SB6xzPTs9uB6MkDsPH9Z5t8yw=",
     },
     {
         "customer_identifier": "iya_tope_002",
@@ -45,6 +49,7 @@ PERSONAS = [
         "va_number": "0234567890",
         "balance_kobo": 11_000_000,      # ₦110,000 online
         "locked_kobo":   1_500_000,      # ₦15,000 offline budget
+        "ed25519_pub_b64": "o5hjpq2lYZfj4Z/XC6X2es7G2Syn+1cbtXtovEihU1o=",
     },
     {
         "customer_identifier": "kosi_003",
@@ -57,6 +62,7 @@ PERSONAS = [
         "va_number": "0345678901",
         "balance_kobo": 7_500_000,       # ₦75,000 online
         "locked_kobo":     500_000,      # ₦5,000 offline budget
+        "ed25519_pub_b64": "E2tSlHCYKv56LLXSlmXbrmBK5vyXRHZKCrvGExDxG/g=",
     },
 ]
 
@@ -79,6 +85,7 @@ def main() -> None:
                 email=spec["email"],
                 bvn=spec["bvn"],
                 dob=spec["dob"],
+                ed25519_pub_b64=spec.get("ed25519_pub_b64"),
                 created_at=now_unix(),
             )
             db.add(u)

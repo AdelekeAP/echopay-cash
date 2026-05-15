@@ -12,6 +12,11 @@ node_modules/
 .env.local
 .env.*.local
 
+# ed25519 server signing key — NEVER COMMIT
+backend/server_ed25519.key
+*.key
+*.pem
+
 # Python venv
 .venv/
 venv/
