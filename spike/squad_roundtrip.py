@@ -75,13 +75,20 @@ app = FastAPI()
 
 def verify_hmac_v2(raw_body: bytes, signature_hex: str) -> tuple[bool, str]:
     """
-    Squad Static VA webhook HMAC-SHA512 V2.
-    Hash over the 6 pipe-separated fields:
-        transaction_ref | virtual_account_number | principal_amount |
-        settled_amount | transaction_currency | customer_identifier
-    Returns (is_valid, computed_hex). The 6-field version is more reliable
-    across Squad payload variants than V1 (whole-body hash), but if V2
-    fails we also try V1 as a fallback and report which path matched.
+    Squad Static VA webhook HMAC-SHA512 V2/V3.
+    Hash over the 6 pipe-separated fields in this exact order:
+        transaction_reference | virtual_account_number | currency |
+        principal_amount | settled_amount | customer_identifier
+    Returns (is_valid, computed_hex). The 6-field V2/V3 path is the
+    canonical Squad spec (see Squad API Summary deck slide 5 + public
+    docs Webhook Validation --version 3); V1 (whole-body hash) is kept
+    as a defensive fallback for sandbox variance.
+
+    NOTE: prior versions of this spike had positions 3-5 mis-ordered
+    (amounts at 3-4, currency at 5) and used key "transaction_currency"
+    instead of "currency". Bug never bit because no real Squad webhook
+    hit this spike. Fixed in PR feat/webhook-vertical alongside the
+    matching PRD §4.3 + signature.py fixes.
     """
     if not SQUAD_SECRET_KEY:
         return False, ""
@@ -90,7 +97,7 @@ def verify_hmac_v2(raw_body: bytes, signature_hex: str) -> tuple[bool, str]:
     # V1: hash entire body
     computed_v1 = hmac.new(key, raw_body, hashlib.sha512).hexdigest()
 
-    # V2: hash 6 pipe-separated fields
+    # V2/V3: hash 6 pipe-separated fields per Squad canonical order
     try:
         payload = json.loads(raw_body)
         # Squad nests fields under various keys depending on event type.
@@ -99,9 +106,12 @@ def verify_hmac_v2(raw_body: bytes, signature_hex: str) -> tuple[bool, str]:
         fields = [
             str(data.get("transaction_reference", "")),
             str(data.get("virtual_account_number", "")),
+            # Squad's canonical payload key is "currency"; fall back to
+            # "transaction_currency" only for backwards compatibility
+            # with the pre-fix spike payloads still in old recordings.
+            str(data.get("currency", data.get("transaction_currency", "NGN"))),
             str(data.get("principal_amount", "")),
             str(data.get("settled_amount", "")),
-            str(data.get("transaction_currency", "NGN")),
             str(data.get("customer_identifier", data.get("customer_id", ""))),
         ]
         msg = "|".join(fields).encode("utf-8")
