@@ -3,7 +3,7 @@ import React, { useState, useCallback } from 'react';
 import { Platform, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import FloatingMicButton from '../../components/FloatingMicButton';
+import FloatingMicButton from '../../components/voice/FloatingMicButton';
 import VoiceModal from '../../components/VoiceModal';
 import { useAuth } from '../../context/AuthContext';
 import { VoiceResponse } from '../../services/voiceService';
