@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EchoPay Cash · Admin</title>
+    <style>
+      :root {
+        --page-bg: #fbf7f0;
+        --card-bg: #ffffff;
+        --card-soft: #f5efe6;
+        --accent: #f97316;
+        --accent-soft: #ffedd5;
+        --accent-pressed: #c2410c;
+        --accent-muted: #fbc192;
+        --border: #ece5d7;
+        --border-strong: #d9cfb8;
+        --text: #1a1a1a;
+        --text-muted: #6b6b6b;
+        --text-subtle: #9a9a9a;
+        --success: #0e8c5a;
+        --success-soft: #e2f4ec;
+        --danger: #dc2626;
+        --danger-soft: #fef2f2;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+        background: var(--page-bg);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      header {
+        background: var(--card-bg);
+        border-bottom: 1px solid var(--border);
+        padding: 18px 28px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.2px;
+      }
+      header .meta {
+        font-size: 12px;
+        color: var(--text-subtle);
+        font-family: var(--mono);
+      }
+      header button {
+        background: var(--accent);
+        color: var(--card-bg);
+        border: none;
+        padding: 10px 20px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.12s ease;
+      }
+      header button:hover { background: var(--accent-pressed); }
+      header button:disabled { background: var(--accent-muted); cursor: wait; }
+
+      #reconcile-banner {
+        margin: 20px 28px 0;
+        padding: 16px 20px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--card-bg);
+        display: none;
+      }
+      #reconcile-banner.show { display: block; }
+      #reconcile-banner.holds { border-color: var(--success); background: var(--success-soft); }
+      #reconcile-banner.drift { border-color: var(--danger); background: var(--danger-soft); }
+      #reconcile-banner .verdict {
+        font-weight: 700;
+        font-size: 14px;
+        margin-bottom: 6px;
+      }
+      #reconcile-banner.holds .verdict { color: var(--success); }
+      #reconcile-banner.drift .verdict { color: var(--danger); }
+      #reconcile-banner .math {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text);
+        line-height: 1.7;
+      }
+      #reconcile-banner .note {
+        font-size: 11px;
+        color: var(--text-subtle);
+        margin-top: 8px;
+        font-style: italic;
+      }
+
+      main {
+        padding: 28px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+      }
+      @media (max-width: 900px) {
+        main { grid-template-columns: 1fr; }
+      }
+
+      .persona-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .persona-card h2 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: -0.2px;
+      }
+      .persona-card .va {
+        font-size: 12px;
+        color: var(--text-muted);
+        font-family: var(--mono);
+      }
+
+      .balances {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .balance-block {
+        background: var(--card-soft);
+        border-radius: 12px;
+        padding: 12px 14px;
+      }
+      .balance-block .label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+      .balance-block .value {
+        font-size: 16px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .credit-score {
+        background: var(--accent-soft);
+        border: 1px solid var(--accent);
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .credit-score .row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+      .credit-score .label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--accent-pressed);
+      }
+      .credit-score .score {
+        font-size: 26px;
+        font-weight: 800;
+        color: var(--accent-pressed);
+        font-variant-numeric: tabular-nums;
+      }
+      .credit-score .breakdown {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text);
+        line-height: 1.7;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4px 12px;
+      }
+      .credit-score .breakdown .key { color: var(--text-muted); }
+      .credit-score .breakdown .val { text-align: right; font-variant-numeric: tabular-nums; }
+      .credit-score .breakdown .penalty { color: var(--danger); }
+
+      .section h3 {
+        margin: 0 0 8px 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+      }
+      .row-list { display: flex; flex-direction: column; gap: 6px; }
+      .row-item {
+        background: var(--card-soft);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 11px;
+        font-family: var(--mono);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .row-item.flash {
+        animation: flash 2s ease-out;
+      }
+      @keyframes flash {
+        0% { background: var(--success-soft); }
+        100% { background: var(--card-soft); }
+      }
+      .row-item .left { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+      .row-item .badge {
+        display: inline-block;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+      .badge-in { background: var(--success-soft); color: var(--success); }
+      .badge-out { background: var(--danger-soft); color: var(--danger); }
+      .badge-pending { background: var(--card-soft); color: var(--text-muted); border: 1px solid var(--border-strong); }
+      .badge-completed { background: var(--success-soft); color: var(--success); }
+      .badge-reversed { background: var(--danger-soft); color: var(--danger); }
+      .badge-failed { background: var(--danger-soft); color: var(--danger); }
+      .badge-v1 { background: var(--card-soft); color: var(--text-muted); }
+      .badge-v2 { background: var(--accent-soft); color: var(--accent-pressed); }
+      .badge-mismatch { background: var(--danger-soft); color: var(--danger); }
+      .row-item .ref {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-muted);
+      }
+      .row-item .amount {
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .row-empty {
+        color: var(--text-subtle);
+        font-size: 11px;
+        font-style: italic;
+        padding: 8px 0;
+      }
+
+      footer {
+        padding: 20px 28px 32px;
+        font-size: 11px;
+        color: var(--text-subtle);
+        font-family: var(--mono);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>EchoPay Cash · Admin</h1>
+        <div class="meta" id="poll-status">Loading…</div>
+      </div>
+      <button id="reconcile-btn">Run Reconcile</button>
+    </header>
+
+    <div id="reconcile-banner">
+      <div class="verdict" id="reconcile-verdict"></div>
+      <div class="math" id="reconcile-math"></div>
+      <div class="note" id="reconcile-note"></div>
+    </div>
+
+    <main id="personas"></main>
+
+    <footer id="footer">
+      Polling <span id="poll-interval">2</span>s · Backend <code id="backend-url"></code>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
