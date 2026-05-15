@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -12,40 +13,116 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { transactionAPI } from '../../services/api';
-import { Transaction } from '../../types';
 import { Echopay } from '../../constants/theme';
 import { LocalTransferPill } from '../../components/local-transfer/Pill';
+import IntentPicker, { Intent } from '../../components/voice/IntentPicker';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { useTransactions } from '../../hooks/useTransactions';
+import { getOutboxPendingCount } from '../../services/cache';
+import {
+  TransactionDirection,
+  TransactionRow,
+  TransactionType,
+} from '../../types/transaction';
+import { formatKoboToNaira } from '../../utils/format';
 
 export default function HomeScreen() {
   const { user, account, refreshAccount } = useAuth();
   const router = useRouter();
+  const { isOnline } = useNetworkStatus();
   const [refreshing, setRefreshing] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [pending, setPending] = useState(0);
+  const [intentPickerVisible, setIntentPickerVisible] = useState(false);
+  const { transactions, refresh: refreshTransactions } = useTransactions(5);
 
-  // Refresh data when screen comes into focus (e.g., after voice transfer)
-  useFocusEffect(
-    useCallback(() => {
-      loadTransactions();
-      refreshAccount();
-    }, [])
+  // PRD_LEKE §3.14 — mock-dropdown intents while /voice/intent backend
+  // is in flight. Both transfer intents route to /local-transfer via
+  // Funbi's §12 deeplink prefill (recipientId + amountKobo). "Balance"
+  // intent stays on-screen and surfaces via Alert.
+  const intents: Intent[] = useMemo(
+    () => [
+      {
+        id: 'send_iya',
+        label: 'Send ₦5,000 to Iya Tope',
+        icon: 'paper-plane-outline',
+        action: 'transfer_local',
+        recipientId: 'iya_tope',
+        amountKobo: 500_000,
+      },
+      {
+        id: 'send_kosi',
+        label: 'Send ₦200 to Kosi',
+        icon: 'paper-plane-outline',
+        action: 'transfer_local',
+        recipientId: 'kosi',
+        amountKobo: 20_000,
+      },
+      {
+        id: 'balance',
+        label: "What's my balance?",
+        icon: 'wallet-outline',
+        action: 'balance',
+      },
+    ],
+    [],
   );
 
-  const loadTransactions = async () => {
-    try {
-      const data = await transactionAPI.getTransactions();
-      setTransactions(data.slice(0, 5)); // Get last 5
-    } catch (error) {
-      console.error('Error loading transactions:', error);
-    }
-  };
+  const handleIntent = useCallback(
+    (intent: Intent) => {
+      setIntentPickerVisible(false);
+      if (
+        intent.action === 'transfer_local' &&
+        intent.recipientId &&
+        intent.amountKobo !== undefined
+      ) {
+        router.push({
+          pathname: '/local-transfer',
+          params: {
+            recipientId: intent.recipientId,
+            amountKobo: String(intent.amountKobo),
+          },
+        });
+        return;
+      }
+      if (intent.action === 'balance') {
+        const balanceKobo = Math.round(
+          parseFloat(account?.balance ?? '0') * 100,
+        );
+        Alert.alert('Available balance', formatKoboToNaira(balanceKobo), [
+          { text: 'OK' },
+        ]);
+      }
+    },
+    [router, account?.balance],
+  );
+
+  // Refresh data when screen comes into focus (e.g., after a local
+  // transfer; PRD_LEKE §3.13). useTransactions already auto-loads on
+  // mount; this re-runs on every focus so a fresh local transfer or
+  // QR receive shows up immediately without a manual pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      refreshTransactions();
+      refreshAccount();
+      if (user?.id) {
+        getOutboxPendingCount(user.id).then(setPending).catch(() => setPending(0));
+      }
+    }, [refreshTransactions, refreshAccount, user?.id])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refreshAccount(), loadTransactions()]);
-    setRefreshing(false);
-  }, []);
+    try {
+      await Promise.all([
+        refreshAccount(),
+        refreshTransactions(),
+        user?.id ? getOutboxPendingCount(user.id).then(setPending) : Promise.resolve(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshAccount, refreshTransactions, user?.id]);
 
   const formatCurrency = (amount: string) => {
     const num = parseFloat(amount);
@@ -56,28 +133,50 @@ export default function HomeScreen() {
     }).format(num);
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+  // Relative time for ISO-8601 strings from TransactionRow.created_at.
+  const formatTxDate = (iso: string) => {
+    const date = new Date(iso);
     const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-    if (days === 0) return 'Today';
+    const diffMs = now.getTime() - date.getTime();
+    const minutes = Math.floor(diffMs / 60_000);
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
     if (days === 1) return 'Yesterday';
     if (days < 7) return `${days} days ago`;
     return date.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
   };
 
-  const getTransactionIcon = (type: string) => {
+  // PRD_LEKE §3.13 — new TransactionRow shape from services/cache.ts
+  // uses (type, direction) instead of the old `transaction_type`.
+  const getTransactionIcon = (type: TransactionType, direction: TransactionDirection) => {
+    if (direction === 'in') {
+      if (type === 'qr_receive') {
+        return { name: 'qr-code', color: Echopay.success, bg: Echopay.successSoft };
+      }
+      if (type === 'topup') {
+        return { name: 'add-circle', color: Echopay.success, bg: Echopay.successSoft };
+      }
+      return { name: 'arrow-down', color: Echopay.success, bg: Echopay.successSoft };
+    }
+    // direction === 'out'
+    return { name: 'arrow-up', color: Echopay.danger, bg: Echopay.dangerSoft };
+  };
+
+  const getTransactionLabel = (type: TransactionType): string => {
     switch (type) {
-      case 'transfer_out':
-        return { name: 'arrow-up', color: Echopay.danger, bg: Echopay.dangerSoft };
-      case 'transfer_in':
-        return { name: 'arrow-down', color: Echopay.success, bg: Echopay.successSoft };
-      case 'deposit':
-        return { name: 'add', color: Echopay.success, bg: Echopay.successSoft };
+      case 'in_network':
+        return 'EchoPay transfer';
+      case 'external_out':
+        return 'Bank transfer';
+      case 'qr_receive':
+        return 'QR receive';
+      case 'topup':
+        return 'Top-up';
       default:
-        return { name: 'swap-horizontal', color: Echopay.textMuted, bg: Echopay.cardSoft };
+        return type;
     }
   };
 
@@ -131,11 +230,15 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.balanceSection}>
-            <Text style={styles.balanceLabel}>Available balance</Text>
-            <Text style={styles.balanceAmount}>
+            <Text style={[styles.balanceLabel, !isOnline && styles.balanceLabelOffline]}>
+              Available balance
+            </Text>
+            <Text style={[styles.balanceAmount, !isOnline && styles.balanceAmountOffline]}>
               {showBalance ? formatCurrency(account?.balance || '0') : '••••••'}
             </Text>
-            <Text style={styles.balanceMeta}>As of just now</Text>
+            <Text style={[styles.balanceMeta, !isOnline && styles.balanceMetaOffline]}>
+              {isOnline ? 'As of just now' : 'Offline — last known'}
+            </Text>
           </View>
 
           <View style={styles.cardFooter}>
@@ -150,23 +253,40 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Offline budget card — PRD_FUNBI §11 dual-balance */}
+        {/* Offline budget card — PRD_FUNBI §11 dual-balance.
+            When offline, this card becomes the visual primary (per
+            PRD_LEKE §3.15) — accent hairline + bolder value. */}
         <Pressable
-          style={offlineBudgetStyles.card}
+          style={[
+            offlineBudgetStyles.card,
+            !isOnline && offlineBudgetStyles.cardActive,
+          ]}
           onPress={() => router.push('/offline-wallet')}
         >
           <View style={offlineBudgetStyles.iconCircle}>
             <Ionicons name="lock-closed-outline" size={18} color={Echopay.accent} />
           </View>
           <View style={offlineBudgetStyles.body}>
-            <Text style={offlineBudgetStyles.label}>Offline budget</Text>
+            <Text
+              style={[
+                offlineBudgetStyles.label,
+                !isOnline && offlineBudgetStyles.labelActive,
+              ]}
+            >
+              Offline budget
+            </Text>
             <Text style={offlineBudgetStyles.hint}>
               {(account?.locked_balance ?? '0.00') === '0.00'
                 ? 'Set aside funds for offline use →'
                 : 'Manage your offline-spendable funds →'}
             </Text>
           </View>
-          <Text style={offlineBudgetStyles.value}>
+          <Text
+            style={[
+              offlineBudgetStyles.value,
+              !isOnline && offlineBudgetStyles.valueActive,
+            ]}
+          >
             ₦{Number(account?.locked_balance ?? '0').toLocaleString('en-NG', {
               minimumFractionDigits: 0,
             })}
@@ -191,8 +311,16 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* Voice-banking hint */}
-        <Pressable style={styles.voiceHintCard}>
+        {/* Voice-banking hint — taps open the IntentPicker (PRD_LEKE §3.14
+            mock-dropdown). Real /voice/intent wiring is a follow-up PR. */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.voiceHintCard,
+            pressed && styles.voiceHintCardPressed,
+          ]}
+          onPress={() => setIntentPickerVisible(true)}
+          hitSlop={4}
+        >
           <View style={styles.voiceHintLeft}>
             <View style={styles.voiceHintIcon}>
               <Ionicons name="mic" size={22} color={Echopay.accent} />
@@ -205,10 +333,20 @@ export default function HomeScreen() {
           <Ionicons name="arrow-forward" size={18} color={Echopay.textMuted} />
         </Pressable>
 
-        {/* Recent Transactions */}
+        {/* Recent Transactions — PRD_LEKE §3.13. Reads from Funbi's
+            cache hook so local-transfers + QR receives + offline-mock
+            entries all show up here automatically. */}
         <View style={styles.transactionsSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent transactions</Text>
+            {pending > 0 && (
+              <View style={styles.syncChip}>
+                <Ionicons name="sync-outline" size={11} color={Echopay.accent} />
+                <Text style={styles.syncChipText}>
+                  {pending === 1 ? '1 waiting to sync' : `${pending} waiting to sync`}
+                </Text>
+              </View>
+            )}
             <Pressable onPress={() => router.push('/(tabs)/transactions')} hitSlop={8}>
               <Text style={styles.seeAllText}>See all</Text>
             </Pressable>
@@ -224,9 +362,11 @@ export default function HomeScreen() {
                 <Text style={styles.emptySubtitle}>Your activity will appear here</Text>
               </View>
             ) : (
-              transactions.map((txn) => {
-                const icon = getTransactionIcon(txn.transaction_type);
-                const isDebit = txn.transaction_type === 'transfer_out';
+              transactions.map((txn: TransactionRow) => {
+                const isDebit = txn.direction === 'out';
+                const icon = getTransactionIcon(txn.type, txn.direction);
+                const label = getTransactionLabel(txn.type);
+                const counterparty = txn.counterparty || (isDebit ? 'Sent' : 'Received');
                 return (
                   <Pressable key={txn.id} style={styles.transactionItem}>
                     <View style={[styles.txnIconContainer, { backgroundColor: icon.bg }]}>
@@ -234,14 +374,14 @@ export default function HomeScreen() {
                     </View>
                     <View style={styles.txnDetails}>
                       <Text style={styles.txnTitle} numberOfLines={1}>
-                        {txn.recipient_name || (isDebit ? 'Transfer Out' : 'Transfer In')}
+                        {counterparty}
                       </Text>
                       <Text style={styles.txnSubtitle}>
-                        {txn.recipient_bank || txn.description} • {formatDate(txn.timestamp)}
+                        {label} • {formatTxDate(txn.created_at)}
                       </Text>
                     </View>
                     <Text style={[styles.txnAmount, isDebit && styles.txnAmountDebit]}>
-                      {isDebit ? '-' : '+'}{formatCurrency(txn.amount)}
+                      {isDebit ? '-' : '+'}{formatKoboToNaira(txn.amount_kobo)}
                     </Text>
                   </Pressable>
                 );
@@ -253,6 +393,13 @@ export default function HomeScreen() {
         {/* Bottom Spacer for floating tab bar */}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      <IntentPicker
+        visible={intentPickerVisible}
+        intents={intents}
+        onClose={() => setIntentPickerVisible(false)}
+        onSelect={handleIntent}
+      />
     </SafeAreaView>
   );
 }
@@ -378,6 +525,11 @@ const styles = StyleSheet.create({
     color: Echopay.textSubtle,
     marginTop: 4,
   },
+  // §3.15 offline-aware contrast: when !isOnline, dim the online row to
+  // shift visual primacy onto the offline-budget card.
+  balanceLabelOffline: { color: Echopay.textSubtle },
+  balanceAmountOffline: { opacity: 0.5, fontWeight: '600' },
+  balanceMetaOffline: { color: Echopay.danger },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -450,6 +602,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  voiceHintCardPressed: {
+    backgroundColor: Echopay.accentSoft,
+  },
   voiceHintLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -494,6 +649,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: Echopay.accent,
+  },
+  // §3.13 — pending-sync chip surfaced when Funbi's outbox has rows.
+  syncChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Echopay.accentSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  syncChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Echopay.accent,
+    letterSpacing: 0.2,
   },
   transactionsList: {
     backgroundColor: Echopay.cardBg,
@@ -590,4 +761,9 @@ const offlineBudgetStyles = StyleSheet.create({
   label: { fontSize: 13, color: Echopay.textMuted, fontWeight: '600' },
   hint: { fontSize: 12, color: Echopay.textSubtle, marginTop: 2 },
   value: { fontSize: 17, fontWeight: '700', color: Echopay.text },
+  // §3.15 — when offline, this card becomes the visual primary: accent
+  // hairline + bolder label + heavier value weight.
+  cardActive: { borderColor: Echopay.accent },
+  labelActive: { color: Echopay.text },
+  valueActive: { fontWeight: '800' },
 });
