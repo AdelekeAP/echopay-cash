@@ -1,0 +1,28 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitOverride": true,
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "components/EchoOrb.tsx",
+    "components/VoiceModal.tsx",
+    "components/VoiceVerificationModal.tsx",
+    "components/Waveform.tsx",
+    "components/FloatingMicButton.tsx",
+    "hooks/useVoiceRecording.ts",
+    "hooks/useWakeWord.ts"
+  ]
+}

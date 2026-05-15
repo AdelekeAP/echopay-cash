@@ -1,0 +1,48 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  mobile-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+
+  backend-syntax:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - id: check-backend
+        run: |
+          if [ -f requirements.txt ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      - if: steps.check-backend.outputs.exists == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - if: steps.check-backend.outputs.exists == 'true'
+        run: pip install -r requirements.txt
+      - if: steps.check-backend.outputs.exists == 'true'
+        run: python -m py_compile $(find app -name "*.py")
+      - if: steps.check-backend.outputs.exists == 'false'
+        run: echo "backend/ not yet scaffolded — skipping check"

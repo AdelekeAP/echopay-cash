@@ -1,0 +1,141 @@
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { User, Account } from '../types';
+import { authAPI, accountAPI } from '../services/api';
+
+interface AuthContextType {
+  user: User | null;
+  account: Account | null;
+  token: string | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  login: (username: string, password: string) => Promise<void>;
+  register: (data: {
+    username: string;
+    email: string;
+    password: string;
+    first_name: string;
+    last_name: string;
+    phone_number: string;
+    pin: string;
+    bank_code: string;
+  }) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshAccount: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadStoredAuth();
+  }, []);
+
+  const loadStoredAuth = async () => {
+    try {
+      const storedToken = await AsyncStorage.getItem('token');
+      const storedUser = await AsyncStorage.getItem('user');
+      const storedAccount = await AsyncStorage.getItem('account');
+
+      if (storedToken && storedUser && storedAccount) {
+        setToken(storedToken);
+        setUser(JSON.parse(storedUser));
+        setAccount(JSON.parse(storedAccount));
+      }
+    } catch (error) {
+      console.error('Error loading auth:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const login = async (username: string, password: string) => {
+    const response = await authAPI.login(username, password);
+
+    await AsyncStorage.setItem('token', response.token);
+    await AsyncStorage.setItem('user', JSON.stringify(response.user));
+    await AsyncStorage.setItem('account', JSON.stringify(response.account));
+
+    setToken(response.token);
+    setUser(response.user);
+    setAccount(response.account);
+  };
+
+  const register = async (data: {
+    username: string;
+    email: string;
+    password: string;
+    first_name: string;
+    last_name: string;
+    phone_number: string;
+    pin: string;
+    bank_code: string;
+  }) => {
+    const response = await authAPI.register(data);
+
+    await AsyncStorage.setItem('token', response.token);
+    await AsyncStorage.setItem('user', JSON.stringify(response.user));
+    await AsyncStorage.setItem('account', JSON.stringify(response.account));
+
+    setToken(response.token);
+    setUser(response.user);
+    setAccount(response.account);
+  };
+
+  const logout = async () => {
+    try {
+      await authAPI.logout();
+    } catch (error) {
+      // Ignore logout errors
+    }
+
+    await AsyncStorage.removeItem('token');
+    await AsyncStorage.removeItem('user');
+    await AsyncStorage.removeItem('account');
+
+    setToken(null);
+    setUser(null);
+    setAccount(null);
+  };
+
+  const refreshAccount = async () => {
+    try {
+      const updatedAccount = await accountAPI.getAccount();
+      setAccount(updatedAccount);
+      await AsyncStorage.setItem('account', JSON.stringify(updatedAccount));
+    } catch (error) {
+      console.error('Error refreshing account:', error);
+    }
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        account,
+        token,
+        isLoading,
+        isAuthenticated: !!token,
+        login,
+        register,
+        logout,
+        refreshAccount,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
