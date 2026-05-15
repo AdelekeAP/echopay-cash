@@ -510,9 +510,131 @@ PR #8 landed the foundation (mobile screen, pill, services, cache, hooks, types,
 
 Order by demo impact: §11 → §12 → §13 → §14.
 
-## 11. Outbox + offline sync drain (PRD §15.7)
+## 11. Dual-balance offline wallet (online funds vs offline allocation)
 
-**Goal:** when the device goes offline, mid-mock transfers stay in a durable queue. When the network comes back, the queue drains to the backend automatically. Server idempotency_key dedupes any replay. Currently mock-fallback writes only to local tx history — the server never learns. This is the difference between "demo offline-tolerant" and "actually offline-first."
+**The model.** Every user has TWO server-tracked balances on the same `wallets` row (the schema already has both columns from PR #8):
+
+- `balance_kobo` — full online funds. Accessed by external transfers, top-ups, and **online** in-network transfers.
+- `locked_kobo` — pre-allocated offline-spending budget. The user explicitly moves funds from `balance_kobo` into `locked_kobo` ("I'll need ₦20,000 for the market today") via a new endpoint. Offline in-network transfers debit this column.
+
+Money never leaves the wallet — it's just earmarked. The **reconciliation invariant updates**: `sum(balance_kobo + locked_kobo) ≡ Master Static VA balance` (PRD §4.5 — update there). This is the same total Squad sees; the locked column is purely an internal allocation.
+
+**Why this beats the single-balance outbox.** A stolen phone offline can only spend up to `locked_kobo` (a user-chosen cap), not the full wallet. The user has explicit consent for offline exposure. Sum conservation still holds at every step.
+
+**The two pipelines stay clean:**
+- Online local transfer → debits `balance_kobo`, credits receiver's `balance_kobo`. Server is source of truth in real time.
+- Offline local transfer → debits cached `locked_kobo` mirror on mobile, queues to outbox. On reconnect, outbox replays with `from_locked=true` flag → server debits `locked_kobo` (not `balance_kobo`), credits receiver's `balance_kobo`. Idempotency_key UNIQUE ensures replays don't double-spend.
+
+### 11.1 Backend — lock / unlock endpoints
+
+`backend/app/api/wallet.py` (new file):
+
+```python
+POST /wallet/lock-for-offline
+Body: { user_id, amount_kobo, idempotency_key }
+→ Atomically: balance_kobo -= amount, locked_kobo += amount.
+  Rejects if balance_kobo < amount.
+
+POST /wallet/unlock-from-offline
+Body: { user_id, amount_kobo, idempotency_key }
+→ Atomically: locked_kobo -= amount, balance_kobo += amount.
+  Rejects if locked_kobo < amount.
+```
+
+Both wrap `BEGIN IMMEDIATE` and use the same idempotency_key UNIQUE pattern as `/transfer/in-network`. Add a `wallet_movements` log table (or reuse `transactions` with new types `'lock_offline'` / `'unlock_offline'`) for audit.
+
+### 11.2 Backend — modify `/transfer/in-network`
+
+Add optional `from_locked: bool = False` to `InNetworkTransferRequest`. In the handler:
+- `from_locked=False` (online path, default): check `sender.balance_kobo >= amount`; debit `balance_kobo`.
+- `from_locked=True` (offline replay): check `sender.locked_kobo >= amount`; debit `locked_kobo`.
+
+Either way, **receiver always credits `balance_kobo`** — they receive into their online wallet. Sender's `version` bumps as before.
+
+### 11.3 Mobile — dual-balance tracking
+
+`types/index.ts` Account already has `balance` string. Add `locked_balance: string` (optional for back-compat). Personas seeded with both: Mama at `{balance: '400000.00', locked_balance: '50000.00'}`.
+
+`hooks/useWallet.ts` extends:
+```ts
+{
+  balanceKobo, balanceNaira,                  // online
+  lockedBalanceKobo, lockedBalanceNaira,      // offline budget
+  vaNumber,
+  applyDebit(kobo),                           // debits online (used by online path)
+  applyLockedDebit(kobo),                     // debits offline budget (used by offline path)
+  lockForOffline(kobo),                       // calls /wallet/lock-for-offline
+  unlockFromOffline(kobo),                    // calls /wallet/unlock-from-offline
+}
+```
+
+`services/transfer.ts` mock-fallback enqueues to outbox with `payload.from_locked=true` AND decrements the cached `locked_balance` via `applyLockedDebit`.
+
+`services/cache.ts` `OutboxRow.payload` adds `from_locked: boolean`.
+
+### 11.4 Mobile — `/offline-wallet` top-up screen
+
+`app/offline-wallet.tsx` (new):
+- Title: "Offline spending budget"
+- Subtitle: "Pre-load funds you can spend even when your network is down. We move money from your main wallet to your offline budget — nothing leaves your account."
+- Shows: current online balance + current locked balance side-by-side.
+- Input: "How much do you want available offline?" — slider or number input, capped at online balance.
+- Primary CTA: "Lock ₦X for offline use" → calls `useWallet.lockForOffline(kobo)` → success screen.
+- Secondary CTA: "Return offline budget to main wallet" — calls `unlockFromOffline(currentLocked)`.
+
+Route from home tab's locked-balance card (added in §11.5 — small Leke touch).
+
+### 11.5 Mobile — home dual-balance display
+
+`app/(tabs)/index.tsx` shows both columns. Coordinate with Leke (PRD_LEKE §3.15 — new) — Leke writes the palette, Funbi confirms the field names. Layout:
+
+```
+┌─────────────────────────────────────────┐
+│  Available balance                       │
+│  ₦400,000                                │  ← balance_kobo
+│  As of just now                          │
+├─────────────────────────────────────────┤
+│  Offline budget                ₦50,000   │  ← locked_kobo
+│  Tap to top up →                         │
+└─────────────────────────────────────────┘
+```
+
+When offline budget = 0, hint card reads "Set aside funds for offline use →" routing to `/offline-wallet`.
+
+### 11.6 Local-transfer adaptation
+
+`app/local-transfer.tsx` stage 2 (enter amount) checks which "pot" to gate against using `useNetworkStatus()` (Leke's hook from Wave 1):
+- Online → max = `balanceKobo`, subtitle "From your balance ₦X"
+- Offline → max = `lockedBalanceKobo`, subtitle "From your offline budget ₦X"
+
+If offline and user tries an amount > `lockedBalanceKobo`, inline error: "That's more than your offline budget. Connect to add more to your offline budget."
+
+### 11.7 Tests
+
+`backend/tests/test_wallet_lock_unlock.py` (~12 tests):
+- Lock happy path: `balance` decremented, `locked` incremented, total conserved
+- Lock with insufficient balance: 400, no state change
+- Lock with zero/negative: 422
+- Idempotent lock (same key twice): single move
+- Unlock happy path: inverse
+- Unlock with insufficient locked: 400
+- Concurrent lock + unlock on same user: serialized, conservation holds
+- `from_locked=true` transfer when sufficient locked: succeeds, locked decremented, receiver's balance credited
+- `from_locked=true` transfer when insufficient locked but sufficient balance: 400 `insufficient_locked_balance` (must NOT silently fall through)
+- Reconciliation invariant: after any sequence of lock/unlock/transfer, `sum(balance_kobo + locked_kobo)` is conserved
+
+### Acceptance
+
+- Sign in as Mama → home shows `Available balance ₦400,000` + `Offline budget ₦50,000`.
+- Tap "Tap to top up →" → `/offline-wallet` → drag slider to ₦70,000 → "Lock ₦70K for offline use" → success. Home updates: `₦380,000` + `₦70,000`.
+- Toggle airplane mode. Local Transfer of ₦5,000 → success. Mobile cache: `₦380,000` (unchanged) + `₦65,000`.
+- Toggle back online. Outbox drains. Backend DB: Mama's `balance_kobo=38_000_000`, `locked_kobo=6_500_000`. Iya Tope's `balance_kobo` up by 5,000_00.
+- Try offline transfer of ₦70,000 (more than offline budget): UI rejects with "That's more than your offline budget."
+- Old single-balance behavior still works when `from_locked` not provided — backwards compatible.
+
+### Hours
+
+~4h: backend (1.5h) + mobile cache/hook/service (1h) + offline-wallet screen (45 min) + home dual-balance (15 min) + local-transfer adaptation (15 min) + tests (45 min).
 
 ### Files
 

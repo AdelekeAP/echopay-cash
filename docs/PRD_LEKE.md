@@ -932,8 +932,53 @@ Pick A. It's 30 minutes.
 
 ---
 
+## 3.15 Home dual-balance display (online + offline budget)
+
+**Goal:** Funbi's §11 introduces a server-tracked `locked_kobo` allocation that's the offline-spendable budget. Home tab needs to render both numbers — currently only one balance is shown.
+
+### Layout
+
+Replace the single balance card with a stack:
+
+```
+┌──────────────────────────────────────────────┐
+│  Available balance                            │
+│  ₦400,000                                     │  ← account.balance
+│  As of just now                               │
+├──────────────────────────────────────────────┤
+│  Offline budget                    ₦50,000    │  ← account.locked_balance
+│  Tap to top up →                              │
+└──────────────────────────────────────────────┘
+```
+
+- Both fields read from `useAuth().account` (extended in Funbi's §11.3 to include `locked_balance: string`).
+- "Tap to top up →" routes to `/offline-wallet` (Funbi's §11.4 screen).
+- When `locked_balance = 0`, the hint reads `Set aside funds for offline use →` instead.
+- Use Echopay palette tokens. No gradients. Hairline divider between the two rows.
+- When `useNetworkStatus().isOnline === false`, dim the online balance row (textMuted) and bold the offline row — visual cue for "this is what you can spend right now."
+
+### Files
+
+```
+mobile/app/(tabs)/index.tsx                    MODIFY balance card section + route to /offline-wallet
+```
+
+### Acceptance
+
+- Sign in as Mama → home shows both balances populated from persona seed (₦400K online, ₦50K offline).
+- Tap "Tap to top up" → routes to `/offline-wallet`.
+- Toggle airplane mode (or simulate `useNetworkStatus`) → online row dims, offline row visually primary.
+- After a successful offline transfer (Funbi's outbox), home re-renders with updated `locked_balance`.
+
+### Hours
+
+~30 min — surgical edit on the existing balance card.
+
+---
+
 ## Coordination touchpoints with Funbi (Wave 2)
 
 1. **Voice route push.** You push `router.push('/local-transfer?recipientId=...&amountKobo=...')`. Funbi accepts the params per his §12. Don't push unknown recipient ids — validate against `PERSONAS` first.
 2. **Pending sync chip.** Funbi exposes `getOutboxPendingCount(user_id)` in his §11. You consume from home per §3.13.
-3. **Auth gate timing.** Land §4.5 last. Funbi can't add `Depends(current_user)` to his endpoints until your module is on main. Until then, Funbi's endpoints are open — acceptable hackathon-scope, document in the PR description.
+3. **Dual-balance display.** Funbi extends `types/index.ts` Account with `locked_balance`, seeds personas with both fields, exposes `lockedBalanceKobo` on `useWallet`. You render both per §3.15.
+4. **Auth gate timing.** Land §4.5 last. Funbi can't add `Depends(current_user)` to his endpoints until your module is on main. Until then, Funbi's endpoints are open — acceptable hackathon-scope, document in the PR description.
