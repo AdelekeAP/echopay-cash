@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { Platform } from 'react-native';
 import { Accelerometer, AccelerometerMeasurement } from 'expo-sensors';
 import * as Haptics from 'expo-haptics';
 
@@ -34,6 +35,9 @@ export function useShakeDetection({
 
   useEffect(() => {
     if (!enabled) return;
+    // Web has no accelerometer. expo-sensors' web shim reports isAvailable=true
+    // but Accelerometer.addListener is not a function — guard with Platform.
+    if (Platform.OS === 'web') return;
 
     let subscription: { remove: () => void } | null = null;
 
