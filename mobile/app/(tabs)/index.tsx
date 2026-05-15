@@ -16,10 +16,12 @@ import { transactionAPI } from '../../services/api';
 import { Transaction } from '../../types';
 import { Echopay } from '../../constants/theme';
 import { LocalTransferPill } from '../../components/local-transfer/Pill';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 export default function HomeScreen() {
   const { user, account, refreshAccount } = useAuth();
   const router = useRouter();
+  const { isOnline } = useNetworkStatus();
   const [refreshing, setRefreshing] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -131,11 +133,15 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.balanceSection}>
-            <Text style={styles.balanceLabel}>Available balance</Text>
-            <Text style={styles.balanceAmount}>
+            <Text style={[styles.balanceLabel, !isOnline && styles.balanceLabelOffline]}>
+              Available balance
+            </Text>
+            <Text style={[styles.balanceAmount, !isOnline && styles.balanceAmountOffline]}>
               {showBalance ? formatCurrency(account?.balance || '0') : '••••••'}
             </Text>
-            <Text style={styles.balanceMeta}>As of just now</Text>
+            <Text style={[styles.balanceMeta, !isOnline && styles.balanceMetaOffline]}>
+              {isOnline ? 'As of just now' : 'Offline — last known'}
+            </Text>
           </View>
 
           <View style={styles.cardFooter}>
@@ -150,23 +156,40 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Offline budget card — PRD_FUNBI §11 dual-balance */}
+        {/* Offline budget card — PRD_FUNBI §11 dual-balance.
+            When offline, this card becomes the visual primary (per
+            PRD_LEKE §3.15) — accent hairline + bolder value. */}
         <Pressable
-          style={offlineBudgetStyles.card}
+          style={[
+            offlineBudgetStyles.card,
+            !isOnline && offlineBudgetStyles.cardActive,
+          ]}
           onPress={() => router.push('/offline-wallet')}
         >
           <View style={offlineBudgetStyles.iconCircle}>
             <Ionicons name="lock-closed-outline" size={18} color={Echopay.accent} />
           </View>
           <View style={offlineBudgetStyles.body}>
-            <Text style={offlineBudgetStyles.label}>Offline budget</Text>
+            <Text
+              style={[
+                offlineBudgetStyles.label,
+                !isOnline && offlineBudgetStyles.labelActive,
+              ]}
+            >
+              Offline budget
+            </Text>
             <Text style={offlineBudgetStyles.hint}>
               {(account?.locked_balance ?? '0.00') === '0.00'
                 ? 'Set aside funds for offline use →'
                 : 'Manage your offline-spendable funds →'}
             </Text>
           </View>
-          <Text style={offlineBudgetStyles.value}>
+          <Text
+            style={[
+              offlineBudgetStyles.value,
+              !isOnline && offlineBudgetStyles.valueActive,
+            ]}
+          >
             ₦{Number(account?.locked_balance ?? '0').toLocaleString('en-NG', {
               minimumFractionDigits: 0,
             })}
@@ -378,6 +401,11 @@ const styles = StyleSheet.create({
     color: Echopay.textSubtle,
     marginTop: 4,
   },
+  // §3.15 offline-aware contrast: when !isOnline, dim the online row to
+  // shift visual primacy onto the offline-budget card.
+  balanceLabelOffline: { color: Echopay.textSubtle },
+  balanceAmountOffline: { opacity: 0.5, fontWeight: '600' },
+  balanceMetaOffline: { color: Echopay.danger },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -590,4 +618,9 @@ const offlineBudgetStyles = StyleSheet.create({
   label: { fontSize: 13, color: Echopay.textMuted, fontWeight: '600' },
   hint: { fontSize: 12, color: Echopay.textSubtle, marginTop: 2 },
   value: { fontSize: 17, fontWeight: '700', color: Echopay.text },
+  // §3.15 — when offline, this card becomes the visual primary: accent
+  // hairline + bolder label + heavier value weight.
+  cardActive: { borderColor: Echopay.accent },
+  labelActive: { color: Echopay.text },
+  valueActive: { fontWeight: '800' },
 });
