@@ -21,15 +21,23 @@ from app.core.db import db_session
 from app.models import User, Wallet, create_all, now_unix
 
 
+# NOTE: gender / address / beneficiary_account are inert in this seed
+# script — it writes hardcoded VA placeholders to the local DB and does
+# NOT call Squad. The fields mirror auth.py's _PERSONA_SEED_BY_ID exactly
+# so the two persona-spec lists stay byte-identical (drift here was the
+# root cause of the Static VA payload bug fixed in fix/seed-squad-payload).
 PERSONAS = [
     {
         "customer_identifier": "mama_risikat_001",
         "first_name": "Mama Risikat",
         "last_name": "Oluwole",
         "phone": "+234 801 234 5001",
-        "email": "mama.risikat@echopay.test",
+        "email": "aladenusiadeleke@gmail.com",
         "bvn": "22288899900",
         "dob": "1979-03-12",
+        "gender": "2",
+        "address": "12 Mile 12 Market Road, Ketu, Lagos",
+        "beneficiary_account": "4920299492",
         "va_number": "0123456789",
         "balance_kobo": 40_000_000,      # ₦400,000 online
         "locked_kobo":   5_000_000,      # ₦50,000 already in offline budget
@@ -39,9 +47,12 @@ PERSONAS = [
         "first_name": "Iya Tope",
         "last_name": "Adeyemi",
         "phone": "+234 801 234 5002",
-        "email": "iya.tope@echopay.test",
+        "email": "aladenusiadeleke@gmail.com",
         "bvn": "11122233344",
         "dob": "1985-07-04",
+        "gender": "2",
+        "address": "Stall 24, Mile 12 Market, Ketu, Lagos",
+        "beneficiary_account": "4920299492",
         "va_number": "0234567890",
         "balance_kobo": 11_000_000,      # ₦110,000 online
         "locked_kobo":   1_500_000,      # ₦15,000 offline budget
@@ -51,9 +62,12 @@ PERSONAS = [
         "first_name": "Kosi",
         "last_name": "Eze",
         "phone": "+234 801 234 5003",
-        "email": "kosi@echopay.test",
+        "email": "aladenusiadeleke@gmail.com",
         "bvn": "55566677788",
         "dob": "1996-11-21",
+        "gender": "1",  # narrative silent; defaulting male — see fix/seed-squad-payload PR
+        "address": "5 Adeola Odeku Street, Victoria Island, Lagos",
+        "beneficiary_account": "4920299492",
         "va_number": "0345678901",
         "balance_kobo": 7_500_000,       # ₦75,000 online
         "locked_kobo":     500_000,      # ₦5,000 offline budget
