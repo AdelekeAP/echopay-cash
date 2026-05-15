@@ -501,3 +501,229 @@ No `Co-Authored-By: Claude` trailer. No "Generated with Claude Code" footer. Com
 Start with `services/transfer.ts` mocked → screen → integrate cache → pill → home edit. Backend can come after if mobile lands first; the mock keeps the demo working.
 
 Ship it.
+
+---
+
+# Wave 2 — production hardening (post-PR #8)
+
+PR #8 landed the foundation (mobile screen, pill, services, cache, hooks, types, backend endpoint, 20 tests). These four sections extend that work without crossing into Leke's lane.
+
+Order by demo impact: §11 → §12 → §13 → §14.
+
+## 11. Outbox + offline sync drain (PRD §15.7)
+
+**Goal:** when the device goes offline, mid-mock transfers stay in a durable queue. When the network comes back, the queue drains to the backend automatically. Server idempotency_key dedupes any replay. Currently mock-fallback writes only to local tx history — the server never learns. This is the difference between "demo offline-tolerant" and "actually offline-first."
+
+### Files
+
+```
+mobile/services/cache.ts                  EXTEND   add outbox table, writeOutbox/readOutboxBatch/ackOutbox/rejectOutbox
+mobile/services/transfer.ts               MODIFY   mock fallback enqueues to outbox in addition to tx history
+mobile/hooks/useOutbox.ts                 NEW      NetInfo listener; drains on reconnect with exponential backoff
+mobile/context/AuthContext.tsx            MOUNT    one-line addition: useOutbox() called inside provider so it lives one level above the router and survives screen unmounts
+backend/app/api/sync.py                   NEW      POST /transfer/sync-offline-batch — array of {idempotency_key, from_user_id, to_user_id, amount_kobo}, replays each through the existing in_network_transfer handler
+backend/tests/test_sync_offline_batch.py  NEW      tests for ordered drain, partial success, replay of already-acked txs
+```
+
+### Schema additions to `cache.ts`
+
+```ts
+// Per-user outbox keyed by user_id. Same JSON-blob-in-AsyncStorage strategy
+// as tx history; one row per pending op. status transitions monotonically:
+//   queued → sent → (acked | rejected)
+// rejected items never retry; they surface to the user via the home tab.
+export interface OutboxRow {
+  id: string;                       // UUID
+  user_id: number;
+  op_type: 'in_network';            // ready for future op types (M2 permits)
+  payload: {
+    from_user_id: number;
+    to_user_id: number;
+    amount_kobo: number;
+  };
+  idempotency_key: string;
+  attempts: number;
+  last_error?: string;
+  created_at: string;
+  next_retry_at: string;            // ISO; honored by drain loop
+  status: 'queued' | 'sent' | 'acked' | 'rejected';
+}
+
+export async function writeOutbox(row: OutboxRow): Promise<void>;
+export async function readOutboxQueued(userId: number, limit?: number): Promise<OutboxRow[]>;
+export async function markOutbox(userId: number, id: string, patch: Partial<OutboxRow>): Promise<void>;
+export async function getOutboxPendingCount(userId: number): Promise<number>;  // for badge on home
+```
+
+### Drain logic (`useOutbox.ts`)
+
+- Listens to `useNetworkStatus()` (Leke shipped in Wave 2).
+- On `isOnline` transitioning false → true: enter drain loop.
+- Reads up to 20 `queued` rows where `next_retry_at <= now`, in `created_at` ASC order.
+- For each: mark `sent`, POST to `/transfer/sync-offline-batch`, on 200 mark `acked`, on 4xx mark `rejected` (do not retry), on 5xx / network error increment `attempts` (max 10) and set `next_retry_at = now + min(60s, 2^attempts * 1000ms)`.
+- After 10 failed attempts: mark `rejected`, surface a user banner: "1 payment couldn't sync — review history."
+- Only one drain loop at a time per user (use a local mutex in the hook).
+
+### Backend endpoint
+
+```python
+@router.post("/sync-offline-batch")
+def sync_offline_batch(req: SyncBatchRequest, db: Session = Depends(get_db)):
+    """Replays an array of offline-queued in-network transfers.
+
+    Each row is independently passed through the existing in-network
+    handler — idempotency_key UNIQUE ensures already-applied txs return
+    the original row instead of double-spending.
+    """
+    results = []
+    for op in req.ops:
+        try:
+            tx = in_network_transfer(InNetworkTransferRequest(**op.dict()), db)
+            results.append({"idempotency_key": op.idempotency_key, "status": "acked", "tx_id": tx.data.tx_id})
+        except HTTPException as e:
+            results.append({"idempotency_key": op.idempotency_key, "status": "rejected", "error": e.detail})
+    return {"success": True, "data": {"results": results}}
+```
+
+Cap batch size at 50. Reject empty batches with 400.
+
+### Acceptance
+
+- Offline transfer writes to outbox (visible via `getOutboxPendingCount` returning 1).
+- Home tab shows a small "1 payment waiting to sync" badge when pending count > 0 (Leke's home update — coordinate in his §3.13).
+- Toggle network on → outbox drains within 5s — server has the tx — local row moves `queued → acked`.
+- Replay of an already-acked outbox row (manually staged in test): returns the original tx_id, no double-spend.
+- 5+ new backend tests in `test_sync_offline_batch.py` pass.
+
+### Hours
+
+~3.5h: cache outbox helpers (45 min) + transfer.ts wiring (30 min) + useOutbox hook + drain (1h) + backend endpoint (30 min) + tests (45 min).
+
+### Out of scope
+
+- Multi-hop permits (M2 ed25519 work — separate PRD section to be drafted)
+- Receiver-side outbox (the demo runs both flows on Mama's phone via persona-switch; production splits)
+- Cross-device outbox merge (one-device-one-outbox is fine for v1)
+
+---
+
+## 12. Accept route-param prefill on `local-transfer.tsx`
+
+**Goal:** when Leke wires the home voice card to route to `/local-transfer?recipientId=iya_tope&amountKobo=500000`, the screen jumps straight to the PIN stage with all earlier fields filled in. Voice → 1 tap (PIN) → done.
+
+### Files
+
+```
+mobile/app/local-transfer.tsx     MODIFY   useLocalSearchParams; if both params present, skip to confirm-pin stage
+```
+
+### Behavior
+
+- `useLocalSearchParams<{ recipientId?: string; amountKobo?: string }>()` on mount.
+- If `recipientId` resolves to a known persona via `getPersonaById` AND `amountKobo` parses to a positive integer ≤ user balance: set `recipient`, `amountStr`, jump to `confirm-pin` stage.
+- If `recipientId` is unknown: route to `pick-recipient` with the search box pre-filled with the original string so the user sees what failed.
+- If only `recipientId` present: pre-select recipient, jump to `enter-amount`.
+- If only `amountKobo` present: ignore (we need a recipient first).
+
+### Acceptance
+
+- `router.push('/local-transfer?recipientId=iya_tope&amountKobo=500000')` lands on the PIN stage with "₦5,000 to Iya Tope" readback.
+- Bad `recipientId` falls back gracefully without crash.
+- No regression on the manual flow (no params).
+
+### Hours
+
+~30 min.
+
+---
+
+## 13. `useLocalTransfer` hook refactor
+
+**Goal:** `mobile/docs/ARCHITECTURE.md` says screens never call services directly — they consume hooks. `app/local-transfer.tsx` currently calls `localTransfer()` and the cache helpers directly. Pull that into a hook so the screen is presentation-only and the state machine becomes unit-testable.
+
+### Files
+
+```
+mobile/hooks/useLocalTransfer.ts     NEW       state machine + handlers
+mobile/app/local-transfer.tsx        REFACTOR  consume the hook
+```
+
+### Hook signature
+
+```ts
+export function useLocalTransfer(opts?: { prefilledRecipientId?: string; prefilledAmountKobo?: number }): {
+  stage: Stage;
+  recipient: Persona | null;
+  amountKobo: number;
+  amountStr: string;
+  pin: string;
+  error: string | null;
+  loading: boolean;
+  result: LocalTransferResult | null;
+  recipients: Persona[];                          // filtered by query
+  query: string;
+
+  setQuery(q: string): void;
+  selectRecipient(p: Persona): void;
+  setAmount(s: string): void;
+  setPin(p: string): void;
+  back(): void;
+  continueFromAmount(): void;
+  confirmAndSend(): Promise<void>;
+  reset(): void;
+};
+```
+
+### Acceptance
+
+- Screen render code is <250 lines (currently ~580). All state and handlers live in the hook.
+- New unit test file `mobile/hooks/__tests__/useLocalTransfer.test.ts` covers happy path + insufficient balance + wrong PIN. (Jest isn't wired yet per `mobile/README.md`; skip the test file if `npm test` doesn't exist — leave the hook itself testable for when Jest lands.)
+
+### Hours
+
+~45 min — straight extraction, no logic change.
+
+---
+
+## 14. Hardening tests for `/transfer/in-network`
+
+**Goal:** the 20 tests cover the spec'd cases. Add edge cases discovered during the live test that aren't in the original PRD §5.3 list.
+
+### New tests
+
+| # | Case | Expected |
+|---|---|---|
+| 21 | Sender wallet exists but has `version=0` and no prior txs (fresh wallet) | Transfer succeeds, version goes to 1 |
+| 22 | Sender == receiver but submitted as integers >0 | 400 self_transfer (already covered as test 8, but extend to verify idempotency_key isn't claimed) |
+| 23 | Body with extra unknown fields | 422 (Pydantic should reject by default — verify config doesn't accept extras) |
+| 24 | `idempotency_key` with valid pattern but at exactly 128 chars | 200 (boundary) |
+| 25 | `idempotency_key` with 129 chars | 422 (one over) |
+| 26 | from_user_id = 0 | 422 (ge=1 violation) |
+| 27 | Race: 2 simultaneous calls with same idempotency_key from different threads | Both return same tx_id, only one debit applied |
+| 28 | After successful tx: re-issue with same key but different amount in body | Returns original tx data, ignores new amount (documented behavior) |
+| 29 | Transfer with amount_kobo = INT_MAX (9223372036854775807) and matching balance | Either succeeds or 400 — must not overflow |
+| 30 | Concurrent transfers from 10 different senders to 1 receiver | All succeed (no shared lock), receiver balance correctly summed |
+
+### Hours
+
+~45 min.
+
+---
+
+## Wave 2 — total estimate
+
+| Section | Hours |
+|---|---|
+| 11. Outbox + sync drain | 3.5 |
+| 12. Route-param prefill | 0.5 |
+| 13. `useLocalTransfer` refactor | 0.75 |
+| 14. Hardening tests | 0.75 |
+| **Total Wave 2** | **~5.5h** |
+
+---
+
+## Coordination touchpoints with Leke (Wave 2)
+
+1. **Home pending-sync badge.** Funbi exposes `getOutboxPendingCount(user_id)`; Leke calls it from home tab and renders a small chip when count > 0. Leke's §3.13.
+2. **Voice → route push.** Leke's voice handler pushes `router.push('/local-transfer?recipientId=...&amountKobo=...')`. Funbi's screen consumes the params per §12.
+3. **JWT auth gate.** Funbi's `/transfer/in-network` and `/transfer/sync-offline-batch` will eventually require `Depends(current_user)` from `backend/app/core/auth.py` — that module is Leke's §4.5. Until it lands, both endpoints accept any caller (documented hackathon scope). After Leke ships §4.5, Funbi adds one `Depends(current_user)` line per endpoint in a tiny follow-up PR.
