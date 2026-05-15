@@ -91,14 +91,24 @@ def _find_pending_qr_tx(
     carries the reference part, so we match two shapes:
     1. squad_ref == reference (legacy unpacked rows, if any)
     2. squad_ref LIKE '%|<reference>' (current packed shape from PR #14)
+
+    Wraps the read in its own `with db.begin():` short snapshot so it
+    doesn't leave a half-open auto-begun session txn that would later
+    collide with the write-path `with db.begin():` block (same pattern
+    as auth.py:_snapshot_existing_user and dva.py).
     """
-    row = db.scalar(
-        select(Transaction).where(
-            (Transaction.squad_ref == reference)
-            | (Transaction.squad_ref.like(f"%|{reference}"))
+    with db.begin():
+        row = db.scalar(
+            select(Transaction).where(
+                (Transaction.squad_ref == reference)
+                | (Transaction.squad_ref.like(f"%|{reference}"))
+            )
         )
-    )
-    return row
+        if row is None:
+            return None
+        # Materialise attrs so they survive past the session close.
+        _ = (row.id, row.user_id, row.amount_kobo, row.status, row.squad_ref, row.created_at)
+        return row
 
 
 # ----------------------------------------------------------------- handler
