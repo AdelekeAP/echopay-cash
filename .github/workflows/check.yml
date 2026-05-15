@@ -21,6 +21,7 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm test
 
   backend-syntax:
     runs-on: ubuntu-latest
@@ -44,3 +45,6 @@ jobs:
       - if: steps.check-backend.outputs.exists == 'true'
         working-directory: backend
         run: python -m py_compile $(find app -name "*.py")
+      - if: steps.check-backend.outputs.exists == 'true'
+        working-directory: backend
+        run: pytest -q
