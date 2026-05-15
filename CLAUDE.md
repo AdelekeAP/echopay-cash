@@ -117,6 +117,7 @@ The following files are excluded from `tsc --noEmit` because they predate strict
 - components/EchoOrb.tsx
 - components/VoiceModal.tsx
 - components/VoiceVerificationModal.tsx
+- components/VoiceEnrollment.tsx
 - components/Waveform.tsx
 - components/FloatingMicButton.tsx
 - hooks/useVoiceRecording.ts
