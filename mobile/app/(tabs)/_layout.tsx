@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { VoiceResponse } from '../../services/voiceService';
 import { useWakeWord } from '../../hooks/useWakeWord';
 import { useShakeDetection } from '../../hooks/useShakeDetection';
+import { Echopay } from '../../constants/theme';
 
 export default function TabLayout() {
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
@@ -63,25 +64,21 @@ export default function TabLayout() {
     <View style={{ flex: 1 }}>
       <Tabs
         screenOptions={{
-          tabBarActiveTintColor: '#E31937',
-          tabBarInactiveTintColor: '#999',
+          tabBarActiveTintColor: Echopay.accent,
+          tabBarInactiveTintColor: Echopay.textSubtle,
           headerShown: false,
           tabBarStyle: {
             position: 'absolute',
             bottom: 20,
             left: 20,
             right: 20,
-            backgroundColor: '#fff',
+            backgroundColor: Echopay.cardBg,
             borderRadius: 25,
             height: 70,
             paddingTop: 10,
             paddingBottom: Platform.OS === 'ios' ? 10 : 10,
-            borderTopWidth: 0,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 10 },
-            shadowOpacity: 0.15,
-            shadowRadius: 20,
-            elevation: 10,
+            borderTopWidth: 1,
+            borderColor: Echopay.border,
           },
           tabBarLabelStyle: {
             fontSize: 11,
