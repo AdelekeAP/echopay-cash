@@ -47,9 +47,15 @@ _PERSONA_SEED_BY_ID: dict[str, dict] = {
         "first_name": "Mama Risikat",
         "last_name": "Oluwole",
         "phone": "+234 801 234 5001",
-        "email": "mama.risikat@echopay.test",
+        # Squad rejects @echopay.com TLD + plus-aliasing — using the
+        # user's real Gmail raw (sandbox doesn't enforce email uniqueness
+        # across customers, so all 3 personas can share).
+        "email": "aladenusiadeleke@gmail.com",
         "bvn": "22288899900",
         "dob": "1979-03-12",
+        "gender": "2",  # female (honorific "Mama")
+        "address": "12 Mile 12 Market Road, Ketu, Lagos",
+        "beneficiary_account": "4920299492",  # Squad's docs-sample, sandbox-accepted
         "va_number_fallback": "0123456789",
         "balance_kobo_initial": 45_000_000,
     },
@@ -58,9 +64,12 @@ _PERSONA_SEED_BY_ID: dict[str, dict] = {
         "first_name": "Iya Tope",
         "last_name": "Adeyemi",
         "phone": "+234 801 234 5002",
-        "email": "iya.tope@echopay.test",
+        "email": "aladenusiadeleke@gmail.com",
         "bvn": "11122233344",
         "dob": "1985-07-04",
+        "gender": "2",  # female (honorific "Iya")
+        "address": "Stall 24, Mile 12 Market, Ketu, Lagos",
+        "beneficiary_account": "4920299492",
         "va_number_fallback": "0234567890",
         "balance_kobo_initial": 12_500_000,
     },
@@ -69,9 +78,15 @@ _PERSONA_SEED_BY_ID: dict[str, dict] = {
         "first_name": "Kosi",
         "last_name": "Eze",
         "phone": "+234 801 234 5003",
-        "email": "kosi@echopay.test",
+        "email": "aladenusiadeleke@gmail.com",
         "bvn": "55566677788",
         "dob": "1996-11-21",
+        # Persona narrative is silent on gender — "Kosi" is a unisex
+        # Igbo name. Defaulting to male; flagged in fix/seed-squad-payload
+        # PR description for review.
+        "gender": "1",
+        "address": "5 Adeola Odeku Street, Victoria Island, Lagos",
+        "beneficiary_account": "4920299492",
         "va_number_fallback": "0345678901",
         "balance_kobo_initial": 8_000_000,
     },
@@ -259,6 +274,9 @@ async def _resolve_va_number(
             email=spec["email"],
             bvn=spec["bvn"],
             dob=spec["dob"],
+            gender=spec["gender"],
+            address=spec["address"],
+            beneficiary_account=spec["beneficiary_account"],
         )
     except SquadAuthError as e:
         # Bad sandbox key — config error, log loudly via the cause.
