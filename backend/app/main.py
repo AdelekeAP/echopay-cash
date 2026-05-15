@@ -32,6 +32,7 @@ from .api.permits import router as permits_router
 from .api.offline_sync import router as offline_sync_router
 from .api.dva import router as dva_router
 from .api.webhooks import router as webhooks_router
+from .api.admin import router as admin_router
 from .core.crypto import get_server_pubkey_b64
 
 settings = get_settings()
@@ -72,6 +73,7 @@ app.include_router(permits_router)
 app.include_router(offline_sync_router)
 app.include_router(dva_router)
 app.include_router(webhooks_router)
+app.include_router(admin_router)
 
 
 @app.get("/crypto/server-pubkey", tags=["meta"])
