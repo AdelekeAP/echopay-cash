@@ -168,15 +168,22 @@ export default function LoginScreen() {
         <View style={styles.signupBlock}>
           <Text style={styles.signupQuestion}>New to EchoPay Cash?</Text>
           <Pressable
-            onPress={() => router.push('/register')}
+            onPress={() => router.push('/voice-signup')}
             style={({ pressed }) => [
               styles.secondaryButton,
               pressed && styles.secondaryButtonPressed,
             ]}
           >
             <Text style={styles.secondaryButtonText}>
-              Sign up with your NIN →
+              Sign up with your voice →
             </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/register')}
+            style={styles.tertiaryLink}
+            hitSlop={10}
+          >
+            <Text style={styles.tertiaryLinkText}>Or sign up with your NIN →</Text>
           </Pressable>
           <Text style={styles.signupFootnote}>
             Verified through NIMC. GTBank account in 30 seconds.
@@ -315,6 +322,15 @@ const styles = StyleSheet.create({
     color: Echopay.accent,
     fontSize: 15,
     fontWeight: '600',
+  },
+  tertiaryLink: {
+    marginTop: 10,
+    paddingVertical: 4,
+  },
+  tertiaryLinkText: {
+    fontSize: 13,
+    color: Echopay.textMuted,
+    fontWeight: '500',
   },
   signupFootnote: {
     fontSize: 12,
