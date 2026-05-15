@@ -5,6 +5,36 @@
 
 import { Platform } from 'react-native';
 
+// EchoPay Cash brand palette — minimalist white/orange/beige.
+// One accent (orange) on warm beige paper. No gradients. No drop shadows.
+export const Echopay = {
+  // Surfaces
+  pageBg: '#FBF7F0',        // warm beige page background
+  cardBg: '#FFFFFF',         // elevated surface on the beige page
+  cardSoft: '#F5EFE6',       // recessed surface (input wells, footers)
+
+  // Brand
+  accent: '#F97316',          // primary orange — CTAs, brand, focus
+  accentSoft: '#FFEDD5',      // tinted background (hero, success-pending)
+  accentPressed: '#C2410C',   // pressed state
+  accentMuted: '#FBC192',     // disabled
+
+  // Borders
+  border: '#ECE5D7',          // 1px hairline on beige
+  borderStrong: '#D9CFB8',    // for inputs in focus
+
+  // Text
+  text: '#1A1A1A',
+  textMuted: '#6B6B6B',
+  textSubtle: '#9A9A9A',
+
+  // Semantic
+  success: '#0E8C5A',
+  successSoft: '#E2F4EC',
+  danger: '#DC2626',
+  dangerSoft: '#FEF2F2',
+} as const;
+
 const tintColorLight = '#0a7ea4';
 const tintColorDark = '#fff';
 

@@ -3,217 +3,374 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
+import { PERSONAS, Persona } from '../constants/personas';
+import { Echopay } from '../constants/theme';
 
 export default function LoginScreen() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [picked, setPicked] = useState<Persona | null>(null);
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { setSession } = useAuth();
   const router = useRouter();
 
-  const handleLogin = async () => {
-    if (!username || !password) {
-      Alert.alert('Error', 'Please enter username and password');
+  const handlePersonaTap = (persona: Persona) => {
+    setPicked(persona);
+    setPin('');
+    setError(null);
+  };
+
+  const handlePinSubmit = async () => {
+    if (!picked) return;
+    if (pin.length < 4) {
+      setError('Enter 4 digits.');
       return;
     }
-
+    if (pin !== picked.pin) {
+      setError('Wrong PIN. Try again.');
+      setPin('');
+      return;
+    }
     setLoading(true);
     try {
-      await login(username, password);
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      Alert.alert(
-        'Login Failed',
-        error.response?.data?.error || 'Invalid credentials'
+      await setSession(
+        picked.user,
+        picked.account,
+        `demo_token_${picked.id}_${Date.now()}`,
       );
+      router.replace('/(tabs)');
     } finally {
       setLoading(false);
     }
   };
 
+  // ----------------------------------------------- PIN sheet (step 2)
+
+  if (picked) {
+    return (
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.container}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <Wordmark small />
+
+          <Pressable
+            onPress={() => {
+              setPicked(null);
+              setPin('');
+              setError(null);
+            }}
+            style={styles.backRow}
+            hitSlop={12}
+          >
+            <Text style={styles.backText}>← Choose another account</Text>
+          </Pressable>
+
+          <View style={styles.personaCardActive}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{picked.initials}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.personaName}>{picked.display_name}</Text>
+              <Text style={styles.personaRole}>{picked.role}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.pinTitle}>Enter your PIN</Text>
+          <Text style={styles.pinSubtitle}>4 digits</Text>
+
+          <TextInput
+            style={styles.pinInput}
+            value={pin}
+            onChangeText={(t) => {
+              setPin(t.replace(/\D/g, '').slice(0, 4));
+              if (error) setError(null);
+            }}
+            keyboardType="number-pad"
+            secureTextEntry
+            autoFocus
+            maxLength={4}
+            placeholder="••••"
+            placeholderTextColor={Echopay.textSubtle}
+          />
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <Pressable
+            onPress={handlePinSubmit}
+            disabled={loading || pin.length < 4}
+            style={({ pressed }) => [
+              styles.primaryButton,
+              (loading || pin.length < 4) && styles.primaryButtonDisabled,
+              pressed && styles.primaryButtonPressed,
+            ]}
+          >
+            <Text style={styles.primaryButtonText}>
+              {loading ? 'Signing in…' : 'Sign in'}
+            </Text>
+          </Pressable>
+
+          <Text style={styles.hintText}>
+            Demo PIN for all personas:{' '}
+            <Text style={styles.hintBold}>1234</Text>
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // ------------------------------------------- Persona picker (step 1)
+
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={styles.logo}>DemoBank</Text>
-          <Text style={styles.subtitle}>Your trusted banking partner</Text>
+        <Wordmark />
+
+        <Text style={styles.welcomeTitle}>Welcome back</Text>
+        <Text style={styles.welcomeSubtitle}>Choose your account to sign in.</Text>
+
+        <View style={styles.personaList}>
+          {PERSONAS.map((p) => (
+            <Pressable
+              key={p.id}
+              onPress={() => handlePersonaTap(p)}
+              style={({ pressed }) => [
+                styles.personaCard,
+                pressed && styles.personaCardPressed,
+              ]}
+            >
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{p.initials}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.personaName}>{p.display_name}</Text>
+                <Text style={styles.personaRole}>{p.role}</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+          ))}
         </View>
 
-        <View style={styles.form}>
-          <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.description}>Sign in to your account</Text>
+        <View style={styles.divider} />
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Username</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your username"
-              value={username}
-              onChangeText={setUsername}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? 'Signing in...' : 'Sign In'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.linkButton}
+        <View style={styles.signupBlock}>
+          <Text style={styles.signupQuestion}>New to EchoPay Cash?</Text>
+          <Pressable
             onPress={() => router.push('/register')}
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              pressed && styles.secondaryButtonPressed,
+            ]}
           >
-            <Text style={styles.linkText}>
-              Don't have an account? <Text style={styles.linkBold}>Sign Up</Text>
+            <Text style={styles.secondaryButtonText}>
+              Sign up with your NIN →
             </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.testInfo}>
-          <Text style={styles.testTitle}>Demo Accounts</Text>
-          <Text style={styles.testText}>funbi - Zenith Bank (1234567890)</Text>
-          <Text style={styles.testText}>ade - GTBank (2345678901)</Text>
-          <Text style={styles.testText}>chidi - First Bank (3456789012)</Text>
-          <Text style={styles.testText}>amara - Zenith Bank (4567890123)</Text>
-          <Text style={styles.testSubtext}>Password: password123 | PIN: 1234</Text>
+          </Pressable>
+          <Text style={styles.signupFootnote}>
+            Verified through NIMC. GTBank account in 30 seconds.
+          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
+// -------------------------------------------------- shared wordmark
+
+function Wordmark({ small }: { small?: boolean }) {
+  return (
+    <View
+      style={[
+        styles.brandHeader,
+        small && { marginTop: 24, marginBottom: 16 },
+      ]}
+    >
+      <Text style={[styles.brandWordmark, small && { fontSize: 22 }]}>
+        echopay<Text style={styles.brandWordmarkAccent}>.</Text>
+        <Text style={styles.brandWordmarkLight}>cash</Text>
+      </Text>
+      {!small && (
+        <Text style={styles.brandTagline}>
+          Voice-first wallet for Nigeria's cash economy
+        </Text>
+      )}
+    </View>
+  );
+}
+
+// ------------------------------------------------------------- styles
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
+  container: { flex: 1, backgroundColor: Echopay.pageBg },
+  scrollContent: { flexGrow: 1, padding: 24, paddingBottom: 40 },
+
+  brandHeader: { alignItems: 'center', marginTop: 48, marginBottom: 36 },
+  brandWordmark: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: Echopay.text,
+    letterSpacing: -0.6,
   },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 24,
-  },
-  header: {
-    alignItems: 'center',
-    marginTop: 60,
-    marginBottom: 40,
-  },
-  logo: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#E31937',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
+  brandWordmarkAccent: { color: Echopay.accent },
+  brandWordmarkLight: { color: Echopay.textMuted, fontWeight: '500' },
+  brandTagline: {
+    fontSize: 13,
+    color: Echopay.textMuted,
     marginTop: 8,
+    textAlign: 'center',
+    maxWidth: 280,
   },
-  form: {
-    flex: 1,
+
+  welcomeTitle: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: Echopay.text,
+    marginBottom: 4,
+    letterSpacing: -0.4,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
-    marginBottom: 8,
+  welcomeSubtitle: {
+    fontSize: 15,
+    color: Echopay.textMuted,
+    marginBottom: 22,
   },
-  description: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 32,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  input: {
+
+  personaList: { gap: 10 },
+  personaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: Echopay.cardBg,
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    backgroundColor: '#f9f9f9',
+    borderColor: Echopay.border,
+    gap: 14,
   },
-  button: {
-    backgroundColor: '#E31937',
-    borderRadius: 12,
+  personaCardPressed: {
+    backgroundColor: Echopay.cardSoft,
+    transform: [{ scale: 0.99 }],
+  },
+  personaCardActive: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 18,
+    borderRadius: 18,
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1.5,
+    borderColor: Echopay.accent,
+    gap: 14,
+    marginBottom: 26,
+  },
+
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Echopay.cardSoft,
     alignItems: 'center',
-    marginTop: 12,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Echopay.border,
   },
-  buttonDisabled: {
-    backgroundColor: '#ccc',
+  avatarText: {
+    color: Echopay.text,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  linkButton: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  linkText: {
+
+  personaName: { fontSize: 16, fontWeight: '600', color: Echopay.text },
+  personaRole: { fontSize: 13, color: Echopay.textMuted, marginTop: 2 },
+  chevron: { fontSize: 28, color: Echopay.textSubtle, marginLeft: 4 },
+
+  divider: { height: 1, backgroundColor: Echopay.border, marginVertical: 28 },
+
+  signupBlock: { alignItems: 'center' },
+  signupQuestion: {
     fontSize: 14,
-    color: '#666',
+    color: Echopay.textMuted,
+    marginBottom: 12,
   },
-  linkBold: {
-    color: '#E31937',
+  secondaryButton: {
+    paddingVertical: 13,
+    paddingHorizontal: 26,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: Echopay.accent,
+    backgroundColor: 'transparent',
+  },
+  secondaryButtonPressed: { backgroundColor: Echopay.accentSoft },
+  secondaryButtonText: {
+    color: Echopay.accent,
+    fontSize: 15,
     fontWeight: '600',
   },
-  testInfo: {
-    marginTop: 40,
-    padding: 16,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-  },
-  testTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  testText: {
+  signupFootnote: {
     fontSize: 12,
-    color: '#666',
+    color: Echopay.textSubtle,
+    marginTop: 14,
+    textAlign: 'center',
+    maxWidth: 280,
+  },
+
+  backRow: { marginBottom: 14 },
+  backText: { fontSize: 14, color: Echopay.accent, fontWeight: '500' },
+
+  pinTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Echopay.text,
     marginBottom: 4,
   },
-  testSubtext: {
-    fontSize: 11,
-    color: '#888',
-    marginTop: 8,
-    fontStyle: 'italic',
+  pinSubtitle: {
+    fontSize: 14,
+    color: Echopay.textMuted,
+    marginBottom: 18,
   },
+  pinInput: {
+    borderWidth: 1,
+    borderColor: Echopay.border,
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    fontSize: 28,
+    letterSpacing: 12,
+    textAlign: 'center',
+    backgroundColor: Echopay.cardBg,
+    color: Echopay.text,
+  },
+  errorText: {
+    color: Echopay.danger,
+    fontSize: 13,
+    marginTop: 10,
+    fontWeight: '500',
+  },
+  primaryButton: {
+    backgroundColor: Echopay.accent,
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  primaryButtonDisabled: { backgroundColor: Echopay.accentMuted },
+  primaryButtonPressed: { backgroundColor: Echopay.accentPressed },
+  primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  hintText: {
+    fontSize: 12,
+    color: Echopay.textSubtle,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  hintBold: { color: Echopay.textMuted, fontWeight: '600' },
 });

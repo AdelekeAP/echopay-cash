@@ -12,6 +12,10 @@ node_modules/
 .env.local
 .env.*.local
 
+# Python venv
+.venv/
+venv/
+
 # Build output
 dist/
 build/

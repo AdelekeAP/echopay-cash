@@ -24,9 +24,11 @@ export default function TabLayout() {
   }, []);
 
   // Wake word detection - "Hello Echo"
+  // Disabled on web: @react-native-voice/voice has no web shim and the
+  // legacy hook's retry-on-error loop spams startSpeech crashes forever.
   const { isListening: isWakeWordListening, isSupported: wakeWordSupported } = useWakeWord({
     onWakeWordDetected: handleMicPress,
-    enabled: wakeWordEnabled && !voiceModalVisible, // Disable when modal is open
+    enabled: Platform.OS !== 'web' && wakeWordEnabled && !voiceModalVisible,
   });
 
   // Shake detection as fallback when wake word isn't supported (Expo Go)
