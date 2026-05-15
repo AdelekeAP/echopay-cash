@@ -32,6 +32,16 @@ class Settings(BaseSettings):
 
     mono_secret_key: str = ""
 
+    # OpenAI Whisper — used by app.voice.proxy for /auth/voice-signup
+    # transcription. Empty key → endpoint returns 503 voice_unavailable.
+    openai_api_key: str = ""
+
+    # Demo-day insurance — when true, app.voice.proxy.transcribe skips
+    # the Whisper call entirely and returns "mama risikat". Pair with
+    # squad_secret_key="" to fully bypass external services and run the
+    # signup flow off seed.py data alone.
+    voice_demo_mode: bool = False
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
