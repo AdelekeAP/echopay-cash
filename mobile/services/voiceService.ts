@@ -1,32 +1,28 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// FastAPI backend URL - the EchoPay voice API
-// Use localhost for iOS simulator, 10.0.2.2 for Android emulator
-// For physical devices, use your computer's IP address
-import { Platform } from 'react-native';
+// Voice services run on :8000 as an external EchoPay v1 dependency — separate
+// from the echopay-cash backend on :8100. We resolve the base URL from
+// EXPO_PUBLIC_VOICE_BASE_URL (inlined at build time by Metro). Soft default
+// to http://localhost:8000 because the voice stack is an optional external
+// service that may legitimately be offline during dev — failing hard at
+// module load would break every screen, not just voice features.
+const VOICE_BASE_URL_DEFAULT = 'http://localhost:8000';
+const ECHOPAY_API_URL =
+  (process.env.EXPO_PUBLIC_VOICE_BASE_URL as string | undefined) ??
+  VOICE_BASE_URL_DEFAULT;
 
-// Configuration - update this IP to match your development machine
-const DEV_MACHINE_IP = '192.168.0.15'; // Your Mac's IP address
-
-const getApiUrl = () => {
-  if (__DEV__) {
-    // Development mode
-    if (Platform.OS === 'android') {
-      // Android emulator uses 10.0.2.2 to reach host
-      return 'http://10.0.2.2:8000';
-    } else if (Platform.OS === 'ios') {
-      // iOS simulator uses localhost
-      return 'http://localhost:8000';
-    }
-    return `http://${DEV_MACHINE_IP}:8000`;
-  }
-  // Production - update with your production API URL
-  return 'https://api.echopay.com';
-};
-
-const ECHOPAY_API_URL = getApiUrl();
-console.log('[VoiceService] Using API URL:', ECHOPAY_API_URL);
+if (!process.env.EXPO_PUBLIC_VOICE_BASE_URL) {
+  // Fires once at module load (top-level), not per request — single line
+  // even when voiceService is imported by multiple screens.
+  console.warn(
+    '[VoiceService] EXPO_PUBLIC_VOICE_BASE_URL not set; falling back to ' +
+      `${VOICE_BASE_URL_DEFAULT}. On a physical phone you must set this to ` +
+      'your dev machine LAN IP (e.g. http://192.168.1.42:8000).',
+  );
+} else {
+  console.log('[VoiceService] Using API URL:', ECHOPAY_API_URL);
+}
 
 // Voice API response types
 export interface VoiceResponse {
