@@ -15,6 +15,7 @@ import { useAuth } from '../../context/AuthContext';
 import { transactionAPI } from '../../services/api';
 import { Transaction } from '../../types';
 import { Echopay } from '../../constants/theme';
+import { LocalTransferPill } from '../../components/local-transfer/Pill';
 
 export default function HomeScreen() {
   const { user, account, refreshAccount } = useAuth();
@@ -157,7 +158,8 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.actionPillLabel}>Send</Text>
           </Pressable>
-          {/* SLOT: local-transfer-pill */}
+          <LocalTransferPill onPress={() => router.push('/local-transfer')} />
+
           <Pressable style={styles.actionPill} onPress={() => router.push('/receive')}>
             <View style={styles.actionPillIcon}>
               <Ionicons name="qr-code-outline" size={22} color={Echopay.accent} />
