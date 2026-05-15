@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
       - run: npm ci
@@ -24,25 +24,23 @@ jobs:
 
   backend-syntax:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - id: check-backend
         run: |
-          if [ -f requirements.txt ]; then
+          if [ -f backend/requirements.txt ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
+            echo "backend/ not yet scaffolded — skipping check"
           fi
       - if: steps.check-backend.outputs.exists == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - if: steps.check-backend.outputs.exists == 'true'
+        working-directory: backend
         run: pip install -r requirements.txt
       - if: steps.check-backend.outputs.exists == 'true'
+        working-directory: backend
         run: python -m py_compile $(find app -name "*.py")
-      - if: steps.check-backend.outputs.exists == 'false'
-        run: echo "backend/ not yet scaffolded — skipping check"
