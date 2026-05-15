@@ -49,6 +49,8 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
         "app.api.transfer",
         "app.api.wallet",
         "app.api.sync",
+        "app.api.voice_intent",
+        "app.services.intent_parser",
         "app.main",
         "app.models",
         "app.core.db",

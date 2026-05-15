@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import {
   Alert,
   View,
@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { Echopay } from '../../constants/theme';
 import { LocalTransferPill } from '../../components/local-transfer/Pill';
-import IntentPicker, { Intent } from '../../components/voice/IntentPicker';
+import VoiceIntentModal from '../../components/voice/VoiceIntentModal';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { useTransactions } from '../../hooks/useTransactions';
 import { getOutboxPendingCount } from '../../services/cache';
@@ -33,63 +33,33 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
   const [pending, setPending] = useState(0);
-  const [intentPickerVisible, setIntentPickerVisible] = useState(false);
+  const [voiceIntentVisible, setVoiceIntentVisible] = useState(false);
   const { transactions, refresh: refreshTransactions } = useTransactions(5);
 
-  // PRD_LEKE §3.14 — mock-dropdown intents while /voice/intent backend
-  // is in flight. Both transfer intents route to /local-transfer via
-  // Funbi's §12 deeplink prefill (recipientId + amountKobo). "Balance"
-  // intent stays on-screen and surfaces via Alert.
-  const intents: Intent[] = useMemo(
-    () => [
-      {
-        id: 'send_iya',
-        label: 'Send ₦5,000 to Iya Tope',
-        icon: 'paper-plane-outline',
-        action: 'transfer_local',
-        recipientId: 'iya_tope',
-        amountKobo: 500_000,
-      },
-      {
-        id: 'send_kosi',
-        label: 'Send ₦200 to Kosi',
-        icon: 'paper-plane-outline',
-        action: 'transfer_local',
-        recipientId: 'kosi',
-        amountKobo: 20_000,
-      },
-      {
-        id: 'balance',
-        label: "What's my balance?",
-        icon: 'wallet-outline',
-        action: 'balance',
-      },
-    ],
-    [],
-  );
-
-  const handleIntent = useCallback(
-    (intent: Intent) => {
-      setIntentPickerVisible(false);
-      if (
-        intent.action === 'transfer_local' &&
-        intent.recipientId &&
-        intent.amountKobo !== undefined
-      ) {
+  // PRD_LEKE §3.14 — real voice intent handler. VoiceIntentModal calls
+  // this with the parsed action + entities from POST /voice/intent.
+  // The IntentPicker fallback inside VoiceIntentModal also calls it.
+  const handleVoiceIntent = useCallback(
+    (
+      action: string,
+      entities: { recipientId?: string; amountKobo?: number; balance_kobo?: number },
+    ) => {
+      setVoiceIntentVisible(false);
+      if (action === 'transfer_local' && entities.recipientId) {
         router.push({
           pathname: '/local-transfer',
           params: {
-            recipientId: intent.recipientId,
-            amountKobo: String(intent.amountKobo),
+            recipientId: entities.recipientId,
+            amountKobo: String(entities.amountKobo ?? 0),
           },
         });
         return;
       }
-      if (intent.action === 'balance') {
-        const balanceKobo = Math.round(
-          parseFloat(account?.balance ?? '0') * 100,
-        );
-        Alert.alert('Available balance', formatKoboToNaira(balanceKobo), [
+      if (action === 'balance') {
+        const kobo =
+          entities.balance_kobo ??
+          Math.round(parseFloat(account?.balance ?? '0') * 100);
+        Alert.alert('Available balance', formatKoboToNaira(kobo), [
           { text: 'OK' },
         ]);
       }
@@ -318,7 +288,7 @@ export default function HomeScreen() {
             styles.voiceHintCard,
             pressed && styles.voiceHintCardPressed,
           ]}
-          onPress={() => setIntentPickerVisible(true)}
+          onPress={() => setVoiceIntentVisible(true)}
           hitSlop={4}
         >
           <View style={styles.voiceHintLeft}>
@@ -394,11 +364,10 @@ export default function HomeScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <IntentPicker
-        visible={intentPickerVisible}
-        intents={intents}
-        onClose={() => setIntentPickerVisible(false)}
-        onSelect={handleIntent}
+      <VoiceIntentModal
+        visible={voiceIntentVisible}
+        onClose={() => setVoiceIntentVisible(false)}
+        onIntent={handleVoiceIntent}
       />
     </SafeAreaView>
   );

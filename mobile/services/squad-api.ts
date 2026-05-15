@@ -168,6 +168,58 @@ export async function getAdminState(): Promise<never> {
   throw new Error('getAdminState: not implemented yet (admin dashboard PR)');
 }
 
+// ----------------------------------------------------------------- voice intent
+
+export interface ParseIntentResult {
+  intent: string;
+  transcript: string;
+  action: 'transfer_local' | 'balance' | 'cancel' | 'unknown';
+  entities: {
+    recipientId?: string;
+    amountKobo?: number;
+    balance_kobo?: number;
+  };
+}
+
+/**
+ * POST /voice/intent — send recorded audio, get back a typed intent.
+ *
+ * Backend runs Whisper (or demo bypass) then fast-path regex + optional
+ * GPT-4o-mini. Always returns HTTP 200; action='unknown' means the
+ * backend couldn't classify. Caller should surface a "try again" path.
+ *
+ * Auth: same demo Bearer token as createDynamicVa. Backend uses it to
+ * attach live balance_kobo for balance-check responses.
+ */
+export async function parseIntent(
+  audioUri: string,
+  token: string | null,
+): Promise<ParseIntentResult> {
+  const form = new FormData();
+  // React Native FormData accepts {uri, name, type} as a file blob.
+  form.append('audio', { uri: audioUri, name: 'recording.m4a', type: 'audio/m4a' } as any);
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'multipart/form-data',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  try {
+    const res = await axios.post<{ success: true; data: ParseIntentResult }>(
+      `${API_BASE_URL}/voice/intent`,
+      form,
+      {
+        headers,
+        // Whisper + intent round-trip; allow generous upper bound.
+        timeout: 15_000,
+      },
+    );
+    return res.data.data;
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
 // ----------------------------------------------------------------- helpers
 
 function _toBackendError(err: unknown): Error {
