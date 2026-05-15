@@ -65,7 +65,7 @@ _PERSONA_SEED_BY_ID: dict[str, dict] = {
         "last_name": "Adeyemi",
         "phone": "+234 801 234 5002",
         "email": "aladenusiadeleke@gmail.com",
-        "bvn": "11122233344",
+        "bvn": "22288899900",  # shared sandbox-validated BVN; Squad sandbox doesn't enforce BVN uniqueness
         "dob": "1985-07-04",
         "gender": "2",  # female (honorific "Iya")
         "address": "Stall 24, Mile 12 Market, Ketu, Lagos",
@@ -79,7 +79,7 @@ _PERSONA_SEED_BY_ID: dict[str, dict] = {
         "last_name": "Eze",
         "phone": "+234 801 234 5003",
         "email": "aladenusiadeleke@gmail.com",
-        "bvn": "55566677788",
+        "bvn": "22288899900",  # shared sandbox-validated BVN; Squad sandbox doesn't enforce BVN uniqueness
         "dob": "1996-11-21",
         # Persona narrative is silent on gender — "Kosi" is a unisex
         # Igbo name. Defaulting to male; flagged in fix/seed-squad-payload

@@ -48,7 +48,7 @@ PERSONAS = [
         "last_name": "Adeyemi",
         "phone": "+234 801 234 5002",
         "email": "aladenusiadeleke@gmail.com",
-        "bvn": "11122233344",
+        "bvn": "22288899900",  # shared sandbox-validated BVN; Squad sandbox doesn't enforce BVN uniqueness
         "dob": "1985-07-04",
         "gender": "2",
         "address": "Stall 24, Mile 12 Market, Ketu, Lagos",
@@ -63,7 +63,7 @@ PERSONAS = [
         "last_name": "Eze",
         "phone": "+234 801 234 5003",
         "email": "aladenusiadeleke@gmail.com",
-        "bvn": "55566677788",
+        "bvn": "22288899900",  # shared sandbox-validated BVN; Squad sandbox doesn't enforce BVN uniqueness
         "dob": "1996-11-21",
         "gender": "1",  # narrative silent; defaulting male — see fix/seed-squad-payload PR
         "address": "5 Adeola Odeku Street, Victoria Island, Lagos",
