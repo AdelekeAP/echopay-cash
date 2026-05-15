@@ -679,3 +679,306 @@ python squad_roundtrip.py create-va --persona mama_risikat
 This must pass before §4 (Squad backend integration) can be considered green.
 
 Ship it.
+
+---
+
+# Wave 2 — production hardening (post-PR #8)
+
+Funbi just landed the in-network transfer vertical (PR #8). Four items below extend the build and only touch your lane. Three of them appeared because the local-transfer flow exposed surfaces that need finishing: home tab "Recent Transactions" still reads the dead `transactionAPI`, the voice hint card on home is a static placeholder, and the backend endpoint Funbi shipped accepts any caller because no auth module exists yet.
+
+Order: §3.13 (one-line win) → §3.14 (voice loop) → §4.5 (auth) → §7 (runbook).
+
+## 3.13 Wire home "Recent Transactions" to `useTransactions()`
+
+**Goal:** Funbi's local-transfer writes to `services/cache.ts` via `writeTransaction()`. The home tab's "Recent Transactions" section currently reads from the dead `transactionAPI.getTransactions()` (services/api.ts demo-bank fork) — it returns network errors offline and never shows the user's own transfers. One-line fix: read from the cache hook Funbi already shipped.
+
+### Files
+
+```
+mobile/app/(tabs)/index.tsx   MODIFY
+```
+
+### Change
+
+Replace:
+```tsx
+import { transactionAPI } from '../../services/api';
+import { Transaction } from '../../types';
+// ...
+const [transactions, setTransactions] = useState<Transaction[]>([]);
+useFocusEffect(useCallback(() => {
+  loadTransactions();
+  refreshAccount();
+}, []));
+const loadTransactions = async () => {
+  try {
+    const data = await transactionAPI.getTransactions();
+    setTransactions(data.slice(0, 5));
+  } catch (error) {
+    console.error('Error loading transactions:', error);
+  }
+};
+```
+
+With:
+```tsx
+import { useTransactions } from '../../hooks/useTransactions';
+// ...
+const { transactions, refresh: refreshTransactions } = useTransactions(5);
+useFocusEffect(useCallback(() => {
+  refreshTransactions();
+  refreshAccount();
+}, [refreshTransactions]));
+```
+
+Add a pending-sync chip near the section header if Funbi's §11 outbox count > 0:
+```tsx
+import { getOutboxPendingCount } from '../../services/cache';
+// in component:
+const [pending, setPending] = useState(0);
+useFocusEffect(useCallback(() => {
+  if (user?.id) getOutboxPendingCount(user.id).then(setPending);
+}, [user?.id]));
+// in JSX, next to "Recent transactions" header:
+{pending > 0 && <View style={styles.syncChip}><Text>{pending} waiting to sync</Text></View>}
+```
+
+Also update the row rendering: the cache returns `TransactionRow` (see `types/transaction.ts`), not the old `Transaction` type. Map fields:
+- `getTransactionIcon(type)` — case `'in_network'` direction `'out'` → up-arrow + danger color; direction `'in'` → down-arrow + success color
+- amount via `formatKoboToNaira(row.amount_kobo)` from `utils/format.ts`
+- timestamp via `formatDate(row.created_at)` (existing helper, takes ISO string)
+
+### Acceptance
+
+- Local-transfer from Mama → Iya Tope, return to home, see the tx in Recent Transactions with the correct amount, direction icon, counterparty name, and "just now" timestamp.
+- Offline transfer (mock fallback) also appears with a pending-sync chip showing "1 waiting to sync".
+- No regression on the empty state.
+
+### Hours
+
+~30 min.
+
+---
+
+## 3.14 Voice hint card on home → `/voice/intent` → route to flow
+
+**Goal:** the home tab has a static "Voice banking" hint card showing `Try "Send ₦5,000 to Iya Tope"`. Currently it does nothing on tap. Wire it to actually run the voice flow and route the user to the right screen with prefilled data.
+
+### Files
+
+```
+mobile/app/(tabs)/index.tsx                MODIFY   onPress on voiceHintCard opens voice modal
+mobile/components/VoiceModal.tsx           READ-ONLY (legacy — already calls voice service)
+mobile/services/voiceService.ts            EXTEND   add parseIntent() that maps backend intent → route params
+backend/app/api/voice_proxy.py             NEW (later wave) — proxies to :8000 voice stack
+```
+
+### Behavior contract
+
+Voice hint card tap → `<VoiceModal>` opens → user speaks → modal posts audio to `/voice/intent` (when backend wires it) → server returns `{action, recipient, amount}` → modal closes → router routes:
+
+- `action: 'transfer'`, recipient resolves to a persona: `router.push('/local-transfer?recipientId=<id>&amountKobo=<N>')` (Funbi's §12 accepts these params)
+- `action: 'transfer'`, recipient is a bank account: `router.push('/transfer?account=<N>&bank=<C>&amount=<N>')`
+- `action: 'balance'`: stay on home, optionally show a toast with the balance
+- `action: 'unknown'`: show a "Sorry, didn't catch that" toast
+
+Until the voice backend lands, mock the call with a dropdown: tap the card → modal opens → user picks one of "Send ₦5,000 to Iya Tope" / "Send ₦200 to Kosi" / "What's my balance?" → route accordingly. This keeps the demo playable without `/voice/intent` being live.
+
+### Acceptance
+
+- Tap voice hint → modal opens → simulate intent → route to `/local-transfer?recipientId=iya_tope&amountKobo=500000` → land on PIN stage with "Sending ₦5,000 to Iya Tope" readback.
+- "Balance" intent stays on home and shows a toast.
+
+### Hours
+
+~1h (without backend voice service; bump to ~2h once voice service is wired).
+
+---
+
+## 4.5 JWT auth — `backend/app/core/auth.py`
+
+**Goal:** Funbi's `/transfer/in-network` (and the upcoming `/transfer/sync-offline-batch` in his §11) currently accepts any caller. Stand up a JWT issuer + FastAPI dependency that money-routes can require. Demo-acceptable in scope; production-acceptable in shape.
+
+### Files
+
+```
+backend/app/core/auth.py               NEW    JWT issuer + verify dependency
+backend/app/api/auth.py                MODIFY when /auth/voice-signup is wired (your existing §3.1), issue a token at signup completion
+backend/app/api/transfer.py            MODIFY 1-line addition: Depends(current_user) on /transfer/in-network (coordinate with Funbi)
+backend/app/api/sync.py                MODIFY when Funbi's §11 lands: same Depends
+backend/tests/test_auth.py             NEW    valid/invalid/missing token cases
+```
+
+### Module shape
+
+```python
+# backend/app/core/auth.py
+from datetime import datetime, timedelta, timezone
+from fastapi import Depends, Header, HTTPException
+from jose import jwt, JWTError
+from pydantic import BaseModel
+from .config import get_settings
+
+JWT_ALGO = "HS256"
+JWT_TTL_HOURS = 24 * 30  # 30 days — long-lived per offline-first PRD §15
+
+class TokenPayload(BaseModel):
+    sub: str          # user_id as string
+    iat: int
+    exp: int
+
+def issue_token(user_id: int) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=JWT_TTL_HOURS)).timestamp()),
+    }
+    return jwt.encode(payload, get_settings().jwt_secret, algorithm=JWT_ALGO)
+
+def current_user(authorization: str = Header(...)) -> int:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "missing_bearer")
+    token = authorization[7:]
+    try:
+        payload = jwt.decode(token, get_settings().jwt_secret, algorithms=[JWT_ALGO])
+        return int(payload["sub"])
+    except (JWTError, KeyError, ValueError):
+        raise HTTPException(401, "invalid_token")
+```
+
+Add `JWT_SECRET` to `backend/.env.example` (Funbi already has the other secrets there).
+
+Apply on Funbi's transfer endpoint:
+```python
+from ..core.auth import current_user
+
+@router.post("/in-network", response_model=InNetworkTransferResponse)
+def in_network_transfer(
+    req: InNetworkTransferRequest,
+    user_id: int = Depends(current_user),     # <-- new
+    db: Session = Depends(get_db),
+):
+    if user_id != req.from_user_id:
+        raise HTTPException(403, "from_user_id must match token subject")
+    # ...rest unchanged
+```
+
+The `user_id != req.from_user_id` check prevents Alice from initiating a transfer as Bob even with a valid Alice token.
+
+### Mobile-side change
+
+`mobile/services/api.ts` already has an axios interceptor that adds `Authorization: Token <token>`. Change to `Bearer <token>` for the new backend. `mobile/services/transfer.ts` `postInNetwork()` already uses fetch — add the header from AsyncStorage:
+
+```ts
+const token = await AsyncStorage.getItem('token');
+fetch(url, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ... });
+```
+
+The persona-picker demo token (`demo_token_mama_risikat_<ts>`) won't validate as a real JWT. Two options:
+
+- **A. Migrate demo tokens to real JWTs.** Change `app/login.tsx` `setSession(...)` to call a lightweight `/auth/persona-login` endpoint that issues a real JWT for the persona's user_id. Cleanest.
+- **B. Accept both formats in `current_user`.** If the token starts with `demo_token_`, parse persona id, look up user_id, return it. Otherwise JWT-validate. Faster to ship, dirty.
+
+Pick A. It's 30 minutes.
+
+### Acceptance
+
+- Old request without auth → 401 `missing_bearer`.
+- Bad signature → 401 `invalid_token`.
+- Valid token, mismatched `from_user_id` → 403.
+- Valid token, matching `from_user_id` → 200, same behavior as today.
+- 4+ tests in `test_auth.py` pass.
+- Mobile end-to-end: log in with PIN, send ₦5K, succeeds with new auth header.
+
+### Hours
+
+~1.5h: module (30 min) + persona-login endpoint (30 min) + mobile wiring (15 min) + tests (15 min).
+
+---
+
+## 7. Demo runbook
+
+**File:** `docs/DEMO_RUNBOOK.md`. You own this because you hold the broader Squad + admin + voice surface area and will be running the laptop on stage.
+
+### Sections to cover
+
+1. **Pre-stage checklist** — battery 100%, both phones updated, tunnel pre-warmed, Squad webhook URL refreshed in sandbox dashboard, admin dashboard open on second monitor, recorded backup at `recordings/demo_v1.mp4` ready to alt-tab to.
+2. **5-minute beat sheet** — mirrors master doc §6 / EchoPay_Cash_PRD.md §1. Per-beat: who controls, who narrates, what's on screen, what to say if it fails.
+3. **Recovery plays:**
+   - Squad webhook doesn't fire → switch to backup cloudflared tunnel
+   - Voice biometric false-rejects → bypass with PIN
+   - Local Transfer fails → mock fallback already in place (no visible degradation)
+   - Network at venue dies → "this is the demo" pivot
+   - Phone dies → cut to recording
+4. **Q&A coverage map** — `EchoPay_Cash_Team_Master_Doc.md` §10. Each question owned by one teammate, drilled answer included.
+5. **Hard rules** — no "Generated with Claude Code" anywhere on screen, no production keys in the bundle, no live `prod` Squad URL anywhere.
+
+### Hours
+
+~1h. Write it ahead of Friday evening's first dress rehearsal.
+
+---
+
+## Wave 2 — total estimate
+
+| Section | Hours |
+|---|---|
+| 3.13 Home Recent Transactions wire | 0.5 |
+| 3.14 Voice hint card → route | 1.0 |
+| 4.5 JWT auth | 1.5 |
+| 7 Demo runbook | 1.0 |
+| **Total Wave 2** | **~4h** |
+
+---
+
+## 3.15 Home dual-balance display (online + offline budget)
+
+**Goal:** Funbi's §11 introduces a server-tracked `locked_kobo` allocation that's the offline-spendable budget. Home tab needs to render both numbers — currently only one balance is shown.
+
+### Layout
+
+Replace the single balance card with a stack:
+
+```
+┌──────────────────────────────────────────────┐
+│  Available balance                            │
+│  ₦400,000                                     │  ← account.balance
+│  As of just now                               │
+├──────────────────────────────────────────────┤
+│  Offline budget                    ₦50,000    │  ← account.locked_balance
+│  Tap to top up →                              │
+└──────────────────────────────────────────────┘
+```
+
+- Both fields read from `useAuth().account` (extended in Funbi's §11.3 to include `locked_balance: string`).
+- "Tap to top up →" routes to `/offline-wallet` (Funbi's §11.4 screen).
+- When `locked_balance = 0`, the hint reads `Set aside funds for offline use →` instead.
+- Use Echopay palette tokens. No gradients. Hairline divider between the two rows.
+- When `useNetworkStatus().isOnline === false`, dim the online balance row (textMuted) and bold the offline row — visual cue for "this is what you can spend right now."
+
+### Files
+
+```
+mobile/app/(tabs)/index.tsx                    MODIFY balance card section + route to /offline-wallet
+```
+
+### Acceptance
+
+- Sign in as Mama → home shows both balances populated from persona seed (₦400K online, ₦50K offline).
+- Tap "Tap to top up" → routes to `/offline-wallet`.
+- Toggle airplane mode (or simulate `useNetworkStatus`) → online row dims, offline row visually primary.
+- After a successful offline transfer (Funbi's outbox), home re-renders with updated `locked_balance`.
+
+### Hours
+
+~30 min — surgical edit on the existing balance card.
+
+---
+
+## Coordination touchpoints with Funbi (Wave 2)
+
+1. **Voice route push.** You push `router.push('/local-transfer?recipientId=...&amountKobo=...')`. Funbi accepts the params per his §12. Don't push unknown recipient ids — validate against `PERSONAS` first.
+2. **Pending sync chip.** Funbi exposes `getOutboxPendingCount(user_id)` in his §11. You consume from home per §3.13.
+3. **Dual-balance display.** Funbi extends `types/index.ts` Account with `locked_balance`, seeds personas with both fields, exposes `lockedBalanceKobo` on `useWallet`. You render both per §3.15.
+4. **Auth gate timing.** Land §4.5 last. Funbi can't add `Depends(current_user)` to his endpoints until your module is on main. Until then, Funbi's endpoints are open — acceptable hackathon-scope, document in the PR description.

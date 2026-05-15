@@ -12,7 +12,12 @@
 import { Account, User } from '../types';
 import { TransactionRow } from '../types/transaction';
 import { PERSONAS, getPersonaById } from '../constants/personas';
-import { writeTransaction, getTransactionByIdempotencyKey } from './cache';
+import {
+  writeTransaction,
+  getTransactionByIdempotencyKey,
+  writeOutbox,
+  buildOutboxRow,
+} from './cache';
 import { API_BASE_URL } from '../constants/config';
 
 export interface LocalTransferRequest {
@@ -22,7 +27,15 @@ export interface LocalTransferRequest {
   amountKobo: number;          // PRD §5 — always integer kobo
   pin: string;                 // verified locally against the picked persona's PIN
   idempotencyKey: string;      // sha256(fromUserId + toPersonaId + amountKobo + minute-bucket)
+  // PRD_FUNBI §11 — the two pots the caller is offering. Online path
+  // gates against balanceKobo, offline fallback gates against
+  // lockedBalanceKobo. Caller passes both so the service can pick the
+  // right pot based on connectivity without an extra round-trip.
+  balanceKobo: number;
+  lockedBalanceKobo: number;
 }
+
+export type DebitedFrom = 'balance' | 'locked';
 
 export interface LocalTransferResult {
   txId: string;
@@ -31,6 +44,11 @@ export interface LocalTransferResult {
   durationMs: number;
   balanceAfterKobo: number;
   recipientName: string;
+  // Which pot the caller should optimistically debit on the UI side.
+  // 'balance' for online success (server already debited balance_kobo).
+  // 'locked' for offline mock fallback (outbox will replay with
+  // from_locked=true so the server eventually debits locked_kobo).
+  debitedFrom: DebitedFrom;
 }
 
 export class LocalTransferError extends Error {
@@ -78,25 +96,34 @@ export async function localTransfer(req: LocalTransferRequest): Promise<LocalTra
       status: 'completed',
       settledAt: existing.settled_at ?? existing.created_at,
       durationMs: Date.now() - started,
-      balanceAfterKobo: Math.max(0, parseFloat(req.fromAccount.balance) * 100 - req.amountKobo),
+      balanceAfterKobo: Math.max(0, req.balanceKobo - req.amountKobo),
       recipientName: existing.counterparty,
+      debitedFrom: 'balance',
     };
   }
 
-  // -------------------- 3. Balance check (local, optimistic)
-
-  const balanceKobo = Math.round(parseFloat(req.fromAccount.balance) * 100);
-  if (balanceKobo < req.amountKobo) {
-    throw new LocalTransferError('insufficient_balance', 'Insufficient balance.');
-  }
-
-  // -------------------- 4. Try the real backend; fall back to mock
+  // -------------------- 3. Try the real backend; fall back to mock + offline pot
+  //
+  // Online path: backend debits sender.balance_kobo. Gate against
+  // req.balanceKobo locally for the snappy "insufficient balance" UX,
+  // but the authoritative check is server-side.
+  //
+  // Offline fallback: outbox replay will debit sender.locked_kobo with
+  // from_locked=true. Gate against req.lockedBalanceKobo locally — the
+  // mock has no server to fall back to for this check.
 
   let txId: string;
-  let backendStatus: 'completed' | 'mocked' = 'mocked';
+  let debitedFrom: DebitedFrom = 'balance';
   let backendBalanceKobo: number | null = null;
 
   try {
+    if (req.balanceKobo < req.amountKobo) {
+      // Skip the network call when we know it'll be rejected.
+      throw new LocalTransferError(
+        'insufficient_balance',
+        'Insufficient online balance.',
+      );
+    }
     const serverResult = await postInNetwork({
       from_user_id: req.fromUser.id,
       to_user_id: toPersona.user.id,
@@ -105,19 +132,46 @@ export async function localTransfer(req: LocalTransferRequest): Promise<LocalTra
     });
     txId = serverResult.tx_id;
     backendBalanceKobo = serverResult.balance_after_kobo;
-    backendStatus = 'completed';
+    debitedFrom = 'balance';
   } catch (e) {
+    if (e instanceof LocalTransferError) {
+      throw e;
+    }
     if (e instanceof BackendBusinessError) {
       // Backend returned a structured 4xx — surface it to the user.
       throw new LocalTransferError(e.code, e.message);
     }
-    // Network down / backend not running → mock the round-trip.
+    // Network down / backend not running → switch to the offline pot.
+    if (req.lockedBalanceKobo < req.amountKobo) {
+      throw new LocalTransferError(
+        'insufficient_offline_budget',
+        "That's more than your offline budget. Connect to add more.",
+      );
+    }
     await new Promise((r) => setTimeout(r, 350 + Math.random() * 200));
     txId = `lt_${cryptoIdSafe()}`;
+    debitedFrom = 'locked';
+    try {
+      await writeOutbox(
+        buildOutboxRow({
+          userId: req.fromUser.id,
+          fromUserId: req.fromUser.id,
+          toUserId: toPersona.user.id,
+          amountKobo: req.amountKobo,
+          idempotencyKey: req.idempotencyKey,
+        }),
+      );
+    } catch (outboxErr) {
+      console.warn('[transfer] outbox enqueue failed:', outboxErr);
+    }
   }
 
   const now = new Date().toISOString();
-  const balanceAfterKobo = backendBalanceKobo ?? balanceKobo - req.amountKobo;
+  const balanceAfterKobo =
+    backendBalanceKobo ??
+    (debitedFrom === 'balance'
+      ? req.balanceKobo - req.amountKobo
+      : req.balanceKobo);
 
   // -------------------- 5. Persist sender's debit row to the cache.
   // (The receiver's credit row is the backend's responsibility once real;
@@ -145,6 +199,7 @@ export async function localTransfer(req: LocalTransferRequest): Promise<LocalTra
     durationMs: Date.now() - started,
     balanceAfterKobo,
     recipientName: toPersona.display_name,
+    debitedFrom,
   };
 }
 

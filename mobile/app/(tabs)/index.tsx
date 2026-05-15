@@ -150,6 +150,29 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* Offline budget card — PRD_FUNBI §11 dual-balance */}
+        <Pressable
+          style={offlineBudgetStyles.card}
+          onPress={() => router.push('/offline-wallet')}
+        >
+          <View style={offlineBudgetStyles.iconCircle}>
+            <Ionicons name="lock-closed-outline" size={18} color={Echopay.accent} />
+          </View>
+          <View style={offlineBudgetStyles.body}>
+            <Text style={offlineBudgetStyles.label}>Offline budget</Text>
+            <Text style={offlineBudgetStyles.hint}>
+              {(account?.locked_balance ?? '0.00') === '0.00'
+                ? 'Set aside funds for offline use →'
+                : 'Manage your offline-spendable funds →'}
+            </Text>
+          </View>
+          <Text style={offlineBudgetStyles.value}>
+            ₦{Number(account?.locked_balance ?? '0').toLocaleString('en-NG', {
+              minimumFractionDigits: 0,
+            })}
+          </Text>
+        </Pressable>
+
         {/* Quick actions — Send + SLOT (Funbi's pill) + Receive */}
         <View style={styles.quickActionsContainer}>
           <Pressable style={styles.actionPill} onPress={() => router.push('/transfer')}>
@@ -538,4 +561,33 @@ const styles = StyleSheet.create({
     color: Echopay.textSubtle,
     marginTop: 4,
   },
+});
+
+// PRD_FUNBI §11.5 — offline-budget card. Kept in its own StyleSheet so
+// Leke's home file isn't sprawling and rebases stay clean.
+const offlineBudgetStyles = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    gap: 14,
+    marginBottom: 22,
+  },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Echopay.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  body: { flex: 1 },
+  label: { fontSize: 13, color: Echopay.textMuted, fontWeight: '600' },
+  hint: { fontSize: 12, color: Echopay.textSubtle, marginTop: 2 },
+  value: { fontSize: 17, fontWeight: '700', color: Echopay.text },
 });

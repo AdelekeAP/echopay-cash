@@ -31,7 +31,8 @@ PERSONAS = [
         "bvn": "22288899900",
         "dob": "1979-03-12",
         "va_number": "0123456789",
-        "balance_kobo": 45_000_000,
+        "balance_kobo": 40_000_000,      # ₦400,000 online
+        "locked_kobo":   5_000_000,      # ₦50,000 already in offline budget
     },
     {
         "customer_identifier": "iya_tope_002",
@@ -42,7 +43,8 @@ PERSONAS = [
         "bvn": "11122233344",
         "dob": "1985-07-04",
         "va_number": "0234567890",
-        "balance_kobo": 12_500_000,
+        "balance_kobo": 11_000_000,      # ₦110,000 online
+        "locked_kobo":   1_500_000,      # ₦15,000 offline budget
     },
     {
         "customer_identifier": "kosi_003",
@@ -53,7 +55,8 @@ PERSONAS = [
         "bvn": "55566677788",
         "dob": "1996-11-21",
         "va_number": "0345678901",
-        "balance_kobo": 8_000_000,
+        "balance_kobo": 7_500_000,       # ₦75,000 online
+        "locked_kobo":     500_000,      # ₦5,000 offline budget
     },
 ]
 
@@ -85,6 +88,7 @@ def main() -> None:
                     user_id=u.id,
                     squad_va_number=spec["va_number"],
                     balance_kobo=spec["balance_kobo"],
+                    locked_kobo=spec["locked_kobo"],
                     updated_at=now_unix(),
                 )
             )

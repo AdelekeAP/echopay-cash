@@ -154,9 +154,28 @@ Compare to header signature in constant time. If mismatch → log + return 200 (
 
 ### 4.5 Master Static VA
 
-One Squad B2B Static VA = the pooled float. All user funds settle there. Each user's "balance" is a row in our `wallets` table.
+One Squad B2B Static VA = the pooled float. All user funds settle there. Each user's "balance" is two columns in our `wallets` table:
 
-**Reconciliation invariant:** `sum(wallets.balance_kobo) + sum(permits.max_amount_kobo WHERE status='outstanding') == master_va_balance_kobo`.
+- `balance_kobo` — online wallet, spendable via external transfers + online in-network transfers
+- `locked_kobo` — pre-allocated offline spending budget; debited only by offline replays
+
+Money never leaves the wallet when locked — it's earmarked. The locked column is an internal allocation; Squad sees the sum.
+
+**Reconciliation invariant (updated for dual-balance + M2 permits):**
+
+```
+SUM(wallets.balance_kobo) + SUM(wallets.locked_kobo)
+    + SUM(permits.max_amount_kobo WHERE status='outstanding')   ← M2 only
+≡   master_va_balance_kobo
+```
+
+In M1 the permits term is zero (no permits issued), so:
+
+```
+SUM(wallets.balance_kobo) + SUM(wallets.locked_kobo) ≡ master_va_balance_kobo
+```
+
+The admin dashboard at `/admin/state` shows both sums and the delta. Any drift > 0 fails reconciliation and is the loudest alarm in the system.
 
 ---
 
