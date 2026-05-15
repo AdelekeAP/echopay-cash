@@ -126,11 +126,15 @@ All amounts in **kobo** (₦1 = 100 kobo). Currency code `NGN`. Auth `Authorizat
 
 ### 4.3 Webhooks
 
-**Static VA webhook:** HMAC-SHA512 V2. Hash the 6 pipe-separated fields:
+**Static VA webhook:** HMAC-SHA512 V2/V3. Hash the 6 pipe-separated fields in this exact order:
 ```
-HMAC-SHA512(secret_key, f"{transaction_ref}|{virtual_account_number}|{principal_amount}|{settled_amount}|{transaction_currency}|{customer_id}")
+HMAC-SHA512(secret_key, f"{transaction_reference}|{virtual_account_number}|{currency}|{principal_amount}|{settled_amount}|{customer_identifier}")
 ```
 Compare to header signature in constant time. If mismatch → log + return 200 (do not 4xx — Squad retries on non-200 and you lose idempotency tracking). If match → proceed.
+
+> **Defect history (fixed in PR feat/webhook-vertical):** Earlier revisions of this PRD line and `spike/squad_roundtrip.py` interleaved the fields as
+> `transaction_ref|virtual_account_number|principal_amount|settled_amount|transaction_currency|customer_id`
+> (currency at position 5, amounts at 3–4). That order does NOT match Squad's canonical specification — verified against the Squad API Summary deck slide 5 and the public docs at https://docs.squadco.com/Virtual-accounts/api-specifications "Webhook Validation --version 3" section. The bug never bit anyone because no real Squad webhook ever hit the spike — caught by cross-reference before stage. Squad's actual payload key is `currency` (not `transaction_currency`); the code defensively falls back to the legacy key for backwards compatibility with pre-fix spike payloads.
 
 **Dynamic VA webhook:** SHA-512 in `x-squad-encrypted-body` header. Three event types:
 - `SUCCESS` — exact amount in time → credit wallet, mark tx settled
