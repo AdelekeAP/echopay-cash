@@ -1,12 +1,12 @@
 """SQLAlchemy models. Schema mirrors EchoPay_Cash_PRD.md §5.
 
-This file is shared between Funbi (local-transfer) and Leke (squad +
-auth + webhooks). Funbi's PR creates the file with `users`, `wallets`,
-`transactions`. Leke can add `permits`, `nonces`, `webhook_events` in a
-follow-up without conflict — they're independent tables.
-
 Money is always integer kobo. Timestamps are unix seconds (integer) so
 arithmetic is trivial and the schema doesn't depend on a TZ library.
+
+Tables:
+  - users, wallets, transactions             (Funbi — local transfer)
+  - permits, nonces                          (offline ed25519 payments)
+  - webhook_events                           (Leke — Squad webhook log)
 """
 
 from __future__ import annotations
@@ -155,6 +155,49 @@ class Nonce(Base):
     )
     nonce: Mapped[str] = mapped_column(String(64), primary_key=True)
     used_at: Mapped[int] = mapped_column(BigInteger, default=now_unix, nullable=False)
+
+
+class WebhookEvent(Base):
+    """Squad webhook event log.
+
+    PRD §4.3 + §5 spec. The `transaction_ref` PK doubles as the
+    idempotency lock — a replay of the same Squad webhook hits the
+    UNIQUE constraint on INSERT, which the endpoint catches and turns
+    into an immediate 200 (no second wallet credit).
+
+    Extra fields beyond PRD §5 spec, captured in this PR for telemetry:
+    - `mismatch`: True when paid amount ≠ expected amount (Squad
+      auto-refunds; we log + flag, do not credit).
+    - `signature_version_matched`: 'v1' / 'v2' / NULL — surfaces sandbox
+      version drift for the admin dashboard.
+    """
+
+    __tablename__ = "webhook_events"
+
+    transaction_ref: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    raw_payload: Mapped[str] = mapped_column(String(8192), nullable=False)
+    signature_valid: Mapped[int] = mapped_column(Integer, nullable=False)
+    mismatch: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    signature_version_matched: Mapped[Optional[str]] = mapped_column(
+        String(8), nullable=True
+    )
+    processed_at: Mapped[int] = mapped_column(BigInteger, default=now_unix, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('static_va', 'dynamic_va', 'transfer')",
+            name="webhook_events_source_enum",
+        ),
+        CheckConstraint(
+            "signature_valid IN (0, 1)",
+            name="webhook_events_signature_valid_bool",
+        ),
+        CheckConstraint(
+            "mismatch IN (0, 1)",
+            name="webhook_events_mismatch_bool",
+        ),
+    )
 
 
 def create_all() -> None:

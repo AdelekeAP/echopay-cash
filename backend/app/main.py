@@ -4,8 +4,15 @@ Boots on :8100 (see backend/README.md for the run command). Tables are
 created on startup; in production a real migration tool would replace
 create_all() — for hackathon scope, idempotent SQLite is enough.
 
-Leke's PRs add routers for /auth, /voice, /transfer/voice-initiate,
-/dynamic-va, /webhooks/squad, /admin/* — all wire into this same app.
+Routers wired:
+  - /transfer/in-network        (Funbi)
+  - /wallet/lock|unlock         (Funbi)
+  - /sync                       (Funbi)
+  - /auth                       (Leke)
+  - /permits + /sync/submit     (offline ed25519 payments — master doc §4.2)
+  - /crypto/server-pubkey       (mobile pins this at boot)
+  - /dynamic-va                 (Leke — per-QR Squad VA)
+  - /webhooks/squad             (Leke — inbound credit settlement)
 """
 
 from __future__ import annotations
@@ -23,6 +30,8 @@ from .api.sync import router as sync_router
 from .api.auth import router as auth_router
 from .api.permits import router as permits_router
 from .api.offline_sync import router as offline_sync_router
+from .api.dva import router as dva_router
+from .api.webhooks import router as webhooks_router
 from .core.crypto import get_server_pubkey_b64
 
 settings = get_settings()
@@ -61,6 +70,8 @@ app.include_router(sync_router)
 app.include_router(auth_router)
 app.include_router(permits_router)
 app.include_router(offline_sync_router)
+app.include_router(dva_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/crypto/server-pubkey", tags=["meta"])
