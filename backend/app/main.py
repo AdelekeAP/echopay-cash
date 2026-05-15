@@ -21,6 +21,7 @@ from .api.transfer import router as transfer_router
 from .api.wallet import router as wallet_router
 from .api.sync import router as sync_router
 from .api.auth import router as auth_router
+from .api.dva import router as dva_router
 
 settings = get_settings()
 
@@ -56,3 +57,4 @@ app.include_router(transfer_router)
 app.include_router(wallet_router)
 app.include_router(sync_router)
 app.include_router(auth_router)
+app.include_router(dva_router)
