@@ -339,6 +339,82 @@ Add `EXPO_PUBLIC_VOICE_HOST_IP` to `mobile/.env.example` with a note that this p
 
 5 `TODO(phase-1)` markers. The whole file is from the demo-bank fork and talks to non-existent paths. Approach: leave it for now (your other screens may still import from it — `transfer.tsx` does). As you migrate each screen to `services/squad-api.ts`, delete the matching wrapper here. By the end of your branch, `services/api.ts` should be a thin axios-instance export or deleted.
 
+### 3.12 App-open biometric unlock gate
+
+**Anchors:** PRD §15.5 (Unlock flow, offline-tolerant), §15.3 (key material). This is the security story that makes "offline app open" defensible in Q&A — without a lock screen, opening the app cold means anyone with the unlocked phone gets straight to a wallet with ₦450K in it.
+
+#### Why this is in your lane
+
+The work crosses `app/_layout.tsx` boot logic, `context/AuthContext.tsx` lock state, `services/storage.ts` (which you already own, §3.9), and an unlock screen — all auth/lifecycle, none of which Funbi's local-transfer vertical touches. The existing `hooks/useBiometricAuth.ts` (137 lines, legacy) and `expo-local-authentication` (`~17.0.8`, already installed) carry the OS-side logic. Both work fully offline — biometric matching is local to the Secure Enclave / TEE, no network involved.
+
+#### The contract
+
+```
+App cold start
+  ↓
+AuthContext.loadStoredAuth()  →  reads token + user + account from AsyncStorage
+  ↓
+  ├── no token  →  /login (persona picker, your existing work)
+  └── token  →  set isLocked=true  →  /_unlock
+                                          ↓
+                              biometric prompt + PIN fallback
+                                          ↓
+                                    ├── success  →  isLocked=false  →  /(tabs)
+                                    └── 5 wrong PIN attempts  →  storage.wipeAll()  →  /login
+```
+
+Foreground after >30 seconds in background also re-locks (use `AppState` from `react-native`).
+
+#### Files
+
+```
+mobile/app/_unlock.tsx                  NEW — biometric prompt + PIN fallback screen
+mobile/context/AuthContext.tsx          ADD  isLocked: boolean, lock(), unlock(), pinFailures: number
+mobile/app/_layout.tsx                  GATE  redirect to /_unlock when isAuthenticated && isLocked
+mobile/services/storage.ts              FILL  (already on your list in §3.9 — these helpers feed the unlock screen)
+mobile/hooks/useBiometricAuth.ts        DO NOT MODIFY  (legacy, gated by CLAUDE.md). Call it from /_unlock.
+```
+
+#### `/_unlock` screen behaviour
+
+- On mount: read `LocalAuthentication.hasHardwareAsync()` + `isEnrolledAsync()`. If both true and the user has opted-in (a `'biometric_enabled'` key in secure-store), call `authenticateAsync({reason: 'Unlock EchoPay Cash'})` immediately.
+- On biometric success: `AuthContext.unlock()` → `router.replace('/(tabs)')`.
+- On biometric failure or "Use PIN instead": show a 4-digit PIN keypad. PIN is verified locally via `storage.verifyPin(input)`.
+- On 5 consecutive wrong PINs: `storage.wipeAll()`, `AuthContext.logout()`, `router.replace('/login')`. Show a banner: "You've been signed out. Please sign in again to restore access."
+- Style: minimal — wordmark + avatar + persona name + biometric/PIN. Re-uses `Echopay` palette.
+
+#### `services/storage.ts` additions for this feature
+
+You already had these on your §3.9 list — call them out explicitly:
+- `setPinHash(pin: string)` — PBKDF2-SHA256 (via `expo-crypto`, 100k iterations) with per-device random salt; stores `{salt, hash}` JSON under `'pin_hash'`.
+- `verifyPin(input: string)` → boolean — constant-time compare.
+- `incrementPinFailures()` → number — returns the new count. Stored under `'pin_failures'`.
+- `resetPinFailures()` — call on every successful unlock.
+- `wipeAll()` — deletes `'pin_hash'`, `'pin_failures'`, `'biometric_enabled'`, the session token, and any cached private keys. Triggered after 5 strikes.
+
+#### PIN setup — where it slots into signup
+
+`register.tsx` currently ends with the PIN entry step. Add one step after PIN confirmation:
+- "Use Face ID / fingerprint to unlock?" with Skip + Enable.
+- On Enable: `LocalAuthentication.authenticateAsync(...)` once to confirm enrolment, then `storage.setItem('biometric_enabled', 'true')`.
+- On Skip: leave `'biometric_enabled'` unset; unlock falls through to PIN.
+
+#### Coordination note for Funbi
+
+When this lands, the existing PIN check inside `app/local-transfer.tsx` stage 3 (which currently does `pin !== me.pin` against the persona's bundled PIN) should be refactored to call `storage.verifyPin(pin)` so PIN validation has a single source of truth. ~5-line change, do it in a follow-up.
+
+#### Acceptance
+
+- Cold-start an installed build offline → land on `_unlock` → biometric prompts → success unlocks → home renders.
+- Tap "Use PIN instead" → 4-digit pad → wrong PIN 5 times → secure-store wiped, routed to `/login`.
+- Foreground after 30s background → re-lock prompt.
+- `npm run typecheck` clean.
+- No network call required to unlock — verified by toggling airplane mode before app open.
+
+#### Hour estimate
+
+~1.5h: storage helpers (0.5h, already on your list) + `_unlock` screen (0.5h) + AuthContext lock state + _layout gate (0.5h).
+
 ---
 
 ## 4. Backend work — Squad client + endpoints
