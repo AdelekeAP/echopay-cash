@@ -22,6 +22,10 @@ interface AuthContextType {
   }) => Promise<void>;
   logout: () => Promise<void>;
   refreshAccount: () => Promise<void>;
+  // Mints a session without calling the API. Used by the demo persona picker
+  // and as the offline-first fallback when the backend is unreachable on cold
+  // start. Persists to AsyncStorage so the next boot picks it up.
+  setSession: (user: User, account: Account, token: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -103,6 +107,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccount(null);
   };
 
+  const setSession = async (newUser: User, newAccount: Account, newToken: string) => {
+    await AsyncStorage.setItem('token', newToken);
+    await AsyncStorage.setItem('user', JSON.stringify(newUser));
+    await AsyncStorage.setItem('account', JSON.stringify(newAccount));
+    setToken(newToken);
+    setUser(newUser);
+    setAccount(newAccount);
+  };
+
   const refreshAccount = async () => {
     try {
       const updatedAccount = await accountAPI.getAccount();
@@ -125,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         refreshAccount,
+        setSession,
       }}
     >
       {children}
