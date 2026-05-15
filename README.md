@@ -5,7 +5,7 @@ Built for GTCO Squad Hackathon 3.0, May 15–16 2026.
 
 ## Team
 
-Adeleke Oluwasanmi (Leke), Funbi Onaeko, Kosi — Team Echo.
+Adeleke Aladenusi (Leke), Funbi Onaeko, Kosi — Team Echo.
 
 Our team has shipped voice AI infrastructure before with EchoPay v1 (voice banking)
 and EchoMind (voice healthcare assistant). This repo contains the new product we built
