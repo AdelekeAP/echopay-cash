@@ -28,7 +28,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
@@ -46,6 +46,11 @@ IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_:\-\.]{1,128}$")
 # ----------------------------------------------------------------- schemas
 
 class InNetworkTransferRequest(BaseModel):
+    # extra='forbid' rejects unknown fields with 422 — guards against
+    # client typos and prevents future model drift from silently
+    # accepting deprecated fields. PRD_FUNBI §14 test 23.
+    model_config = ConfigDict(extra="forbid")
+
     from_user_id: int = Field(..., ge=1)
     to_user_id: int = Field(..., ge=1)
     amount_kobo: int = Field(..., gt=0, description="Positive integer kobo")

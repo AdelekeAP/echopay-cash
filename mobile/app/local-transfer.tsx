@@ -1,15 +1,13 @@
-// Local Transfer screen — the four-stage in-network payment flow
-// described in EchoPay_Cash_PRD.md §4 and docs/PRD_FUNBI.md §4.5.
+// Local Transfer screen — four-stage in-network payment flow.
 //
-// pick-recipient → enter-amount → confirm-pin → success
+// Presentation-only per mobile/docs/ARCHITECTURE.md (PRD_FUNBI §13).
+// All state machine + handlers + prefill logic live in
+// hooks/useLocalTransfer. This file is JSX + styles only.
 //
-// All amounts in kobo. Sender's PIN is verified locally against the
-// persona's `pin` field (hackathon scope — real Argon2id check in
-// expo-secure-store is post-T2). On success the screen calls
-// services/transfer.localTransfer() which writes to the cache and the
-// home tab balance updates via the useWallet hook.
+// Accepts optional URL params (PRD_FUNBI §12):
+//   /local-transfer?recipientId=iya_tope&amountKobo=500000
+// When both are present and resolve, the hook skips straight to PIN.
 
-import { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -21,147 +19,31 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../context/AuthContext';
-import { useWallet } from '../hooks/useWallet';
-import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { Echopay } from '../constants/theme';
-import { PERSONAS, Persona, getPersonaById } from '../constants/personas';
-import {
-  localTransfer,
-  buildIdempotencyKey,
-  suggestedRecipients,
-  LocalTransferError,
-  LocalTransferResult,
-} from '../services/transfer';
-import { formatKoboToNaira, parseNairaToKobo } from '../utils/format';
-
-type Stage = 'pick-recipient' | 'enter-amount' | 'confirm-pin' | 'success';
+import { useLocalTransfer } from '../hooks/useLocalTransfer';
+import { formatKoboToNaira } from '../utils/format';
 
 export default function LocalTransferScreen() {
   const router = useRouter();
-  const { user, account } = useAuth();
-  const {
-    balanceKobo,
-    balanceNaira,
-    lockedBalanceKobo,
-    lockedBalanceNaira,
-    applyDebit,
-    applyLockedDebit,
-  } = useWallet();
-  const { isOnline } = useNetworkStatus();
-  // When offline, the user can only spend from their pre-allocated
-  // offline budget. When online, from their main balance. The screen
-  // gates against whichever pot is "active" for this connectivity state.
-  const activeBalanceKobo = isOnline ? balanceKobo : lockedBalanceKobo;
-  const activeBalanceLabel = isOnline ? 'balance' : 'offline budget';
-  const activeBalanceNaira = isOnline ? balanceNaira : lockedBalanceNaira;
+  const params = useLocalSearchParams<{
+    recipientId?: string;
+    amountKobo?: string;
+  }>();
 
-  const [stage, setStage] = useState<Stage>('pick-recipient');
-  const [query, setQuery] = useState('');
-  const [recipient, setRecipient] = useState<Persona | null>(null);
-  const [amountStr, setAmountStr] = useState('');
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<LocalTransferResult | null>(null);
+  const parsedAmount = params.amountKobo
+    ? Number.parseInt(params.amountKobo, 10)
+    : undefined;
 
-  // Currently-signed-in persona — used for local PIN check (hackathon).
-  // Real Argon2id-in-secure-store check happens post-T2.
-  const me: Persona | undefined = useMemo(
-    () => (user ? getPersonaById(asPersonaId(user.username ?? '')) : undefined),
-    [user],
-  );
-
-  const recipients = useMemo(() => {
-    if (!user) return [];
-    const all = suggestedRecipients(user.id);
-    const q = query.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter(
-      (p) =>
-        p.display_name.toLowerCase().includes(q) ||
-        p.user.phone_number.replace(/\s/g, '').includes(q.replace(/\s/g, '')) ||
-        p.user.username.toLowerCase().includes(q),
-    );
-  }, [query, user]);
-
-  const amountKobo = useMemo(() => {
-    try {
-      const k = parseNairaToKobo(amountStr || '0');
-      return k > 0 ? k : 0;
-    } catch {
-      return 0;
-    }
-  }, [amountStr]);
-
-  const amountValid =
-    amountKobo > 0 && amountKobo <= activeBalanceKobo;
-
-  // -------------------------------------------------- handlers
-
-  const reset = () => {
-    setStage('pick-recipient');
-    setRecipient(null);
-    setAmountStr('');
-    setPin('');
-    setError(null);
-    setResult(null);
-  };
-
-  const onConfirm = async () => {
-    if (!user || !account || !recipient) return;
-    setError(null);
-
-    if (pin.length < 4) {
-      setError('Enter 4 digits.');
-      return;
-    }
-    if (me && pin !== me.pin) {
-      setError('Wrong PIN. Try again.');
-      setPin('');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const idempotencyKey = buildIdempotencyKey(
-        user.id,
-        recipient.id,
-        amountKobo,
-      );
-      const res = await localTransfer({
-        fromUser: user,
-        fromAccount: account,
-        toPersonaId: recipient.id,
-        amountKobo,
-        pin,
-        idempotencyKey,
-        balanceKobo,
-        lockedBalanceKobo,
-      });
-      if (res.debitedFrom === 'locked') {
-        await applyLockedDebit(amountKobo);
-      } else {
-        await applyDebit(amountKobo);
-      }
-      setResult(res);
-      setStage('success');
-    } catch (e) {
-      if (e instanceof LocalTransferError) {
-        setError(e.message);
-      } else {
-        setError('Transfer failed. Try again.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const lt = useLocalTransfer({
+    prefilledRecipientId: params.recipientId,
+    prefilledAmountKobo: Number.isFinite(parsedAmount) ? parsedAmount : undefined,
+  });
 
   // -------------------------------------------------- success screen
 
-  if (stage === 'success' && result) {
+  if (lt.stage === 'success' && lt.result) {
     return (
       <View style={styles.successScreen}>
         <View style={styles.successInner}>
@@ -169,23 +51,25 @@ export default function LocalTransferScreen() {
             <Text style={styles.successCheckMark}>✓</Text>
           </View>
           <Text style={styles.successHeadline}>
-            Sent {formatKoboToNaira(amountKobo)}
+            Sent {formatKoboToNaira(lt.amountKobo)}
           </Text>
-          <Text style={styles.successSub}>to {result.recipientName}</Text>
+          <Text style={styles.successSub}>to {lt.result.recipientName}</Text>
 
           <View style={styles.successCard}>
             <View style={styles.successRow}>
               <Text style={styles.successLabel}>Settled in</Text>
-              <Text style={styles.successValue}>{result.durationMs} ms</Text>
+              <Text style={styles.successValue}>{lt.result.durationMs} ms</Text>
             </View>
             <View style={styles.successRow}>
               <Text style={styles.successLabel}>Reference</Text>
-              <Text style={styles.successValueMono}>{result.txId}</Text>
+              <Text style={styles.successValueMono}>{lt.result.txId}</Text>
             </View>
             <View style={styles.successRow}>
-              <Text style={styles.successLabel}>New balance</Text>
+              <Text style={styles.successLabel}>
+                {lt.result.debitedFrom === 'locked' ? 'Offline budget left' : 'New balance'}
+              </Text>
               <Text style={styles.successValue}>
-                {formatKoboToNaira(result.balanceAfterKobo)}
+                {formatKoboToNaira(lt.result.balanceAfterKobo)}
               </Text>
             </View>
           </View>
@@ -200,7 +84,7 @@ export default function LocalTransferScreen() {
             <Text style={styles.primaryButtonText}>Done</Text>
           </Pressable>
 
-          <Pressable onPress={reset} style={styles.linkRow} hitSlop={8}>
+          <Pressable onPress={lt.reset} style={styles.linkRow} hitSlop={8}>
             <Text style={styles.linkText}>Send another →</Text>
           </Pressable>
         </View>
@@ -216,20 +100,9 @@ export default function LocalTransferScreen() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
         <View style={styles.header}>
           <Pressable
-            onPress={() => {
-              if (stage === 'pick-recipient') {
-                router.back();
-              } else if (stage === 'enter-amount') {
-                setStage('pick-recipient');
-              } else if (stage === 'confirm-pin') {
-                setStage('enter-amount');
-                setPin('');
-                setError(null);
-              }
-            }}
+            onPress={() => (lt.stage === 'pick-recipient' ? router.back() : lt.back())}
             hitSlop={12}
             style={styles.backRow}
           >
@@ -237,11 +110,11 @@ export default function LocalTransferScreen() {
           </Pressable>
           <Text style={styles.eyebrow}>LOCAL TRANSFER</Text>
           <Text style={styles.title}>
-            {stage === 'pick-recipient' && 'Who are you paying?'}
-            {stage === 'enter-amount' && 'How much?'}
-            {stage === 'confirm-pin' && 'Confirm with your PIN'}
+            {lt.stage === 'pick-recipient' && 'Who are you paying?'}
+            {lt.stage === 'enter-amount' && 'How much?'}
+            {lt.stage === 'confirm-pin' && 'Confirm with your PIN'}
           </Text>
-          {stage === 'pick-recipient' && (
+          {lt.stage === 'pick-recipient' && (
             <Text style={styles.subtitle}>
               Send instantly to another EchoPay Cash user. No fees.
             </Text>
@@ -249,7 +122,7 @@ export default function LocalTransferScreen() {
         </View>
 
         {/* Stage: pick-recipient */}
-        {stage === 'pick-recipient' && (
+        {lt.stage === 'pick-recipient' && (
           <>
             <View style={styles.searchWrap}>
               <Ionicons
@@ -260,8 +133,8 @@ export default function LocalTransferScreen() {
               />
               <TextInput
                 style={styles.searchInput}
-                value={query}
-                onChangeText={setQuery}
+                value={lt.query}
+                onChangeText={lt.setQuery}
                 placeholder="Phone or username"
                 placeholderTextColor={Echopay.textSubtle}
                 autoCapitalize="none"
@@ -272,7 +145,7 @@ export default function LocalTransferScreen() {
             <Text style={styles.sectionLabel}>Suggested</Text>
 
             <View style={styles.recipientList}>
-              {recipients.length === 0 ? (
+              {lt.recipients.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyTitle}>No matches</Text>
                   <Text style={styles.emptySub}>
@@ -280,13 +153,10 @@ export default function LocalTransferScreen() {
                   </Text>
                 </View>
               ) : (
-                recipients.map((p) => (
+                lt.recipients.map((p) => (
                   <Pressable
                     key={p.id}
-                    onPress={() => {
-                      setRecipient(p);
-                      setStage('enter-amount');
-                    }}
+                    onPress={() => lt.selectRecipient(p)}
                     style={({ pressed }) => [
                       styles.recipientCard,
                       pressed && styles.recipientCardPressed,
@@ -312,16 +182,16 @@ export default function LocalTransferScreen() {
         )}
 
         {/* Stage: enter-amount */}
-        {stage === 'enter-amount' && recipient && (
+        {lt.stage === 'enter-amount' && lt.recipient && (
           <>
             <View style={styles.toCard}>
               <View style={styles.avatarSmall}>
-                <Text style={styles.avatarText}>{recipient.initials}</Text>
+                <Text style={styles.avatarText}>{lt.recipient.initials}</Text>
               </View>
               <View>
                 <Text style={styles.toLabel}>To</Text>
-                <Text style={styles.toName}>{recipient.display_name}</Text>
-                <Text style={styles.toMeta}>{recipient.role}</Text>
+                <Text style={styles.toName}>{lt.recipient.display_name}</Text>
+                <Text style={styles.toMeta}>{lt.recipient.role}</Text>
               </View>
             </View>
 
@@ -329,8 +199,8 @@ export default function LocalTransferScreen() {
               <Text style={styles.nairaSymbol}>₦</Text>
               <TextInput
                 style={styles.amountInput}
-                value={amountStr}
-                onChangeText={(t) => setAmountStr(t.replace(/[^0-9.]/g, ''))}
+                value={lt.amountStr}
+                onChangeText={lt.setAmount}
                 placeholder="0"
                 placeholderTextColor={Echopay.textSubtle}
                 keyboardType="decimal-pad"
@@ -339,34 +209,32 @@ export default function LocalTransferScreen() {
             </View>
 
             <Text style={styles.balanceHint}>
-              From your {activeBalanceLabel}{' '}
-              <Text style={styles.balanceHintBold}>{activeBalanceNaira}</Text>
+              From your {lt.activeBalanceLabel}{' '}
+              <Text style={styles.balanceHintBold}>{lt.activeBalanceNaira}</Text>
             </Text>
 
             <View style={styles.instantBadge}>
               <Ionicons name="flash" size={14} color={Echopay.accent} />
               <Text style={styles.instantBadgeText}>
-                {isOnline ? 'Instant · No fees' : 'Offline · Will sync when connected'}
+                {lt.isOnline ? 'Instant · No fees' : 'Offline · Will sync when connected'}
               </Text>
             </View>
 
-            {amountKobo > activeBalanceKobo && (
+            {lt.amountKobo > lt.activeBalanceKobo && (
               <Text style={styles.errorText}>
-                {isOnline
+                {lt.isOnline
                   ? "That's more than your balance."
                   : "That's more than your offline budget. Connect to add more."}
               </Text>
             )}
 
             <Pressable
-              onPress={() => {
-                if (amountValid) setStage('confirm-pin');
-              }}
-              disabled={!amountValid}
+              onPress={lt.continueFromAmount}
+              disabled={!lt.amountValid}
               style={({ pressed }) => [
                 styles.primaryButton,
-                !amountValid && styles.primaryButtonDisabled,
-                pressed && amountValid && styles.primaryButtonPressed,
+                !lt.amountValid && styles.primaryButtonDisabled,
+                pressed && lt.amountValid && styles.primaryButtonPressed,
               ]}
             >
               <Text style={styles.primaryButtonText}>Continue</Text>
@@ -375,13 +243,13 @@ export default function LocalTransferScreen() {
         )}
 
         {/* Stage: confirm-pin */}
-        {stage === 'confirm-pin' && recipient && (
+        {lt.stage === 'confirm-pin' && lt.recipient && (
           <>
             <View style={styles.readback}>
               <Text style={styles.readbackAmount}>
-                {formatKoboToNaira(amountKobo)}
+                {formatKoboToNaira(lt.amountKobo)}
               </Text>
-              <Text style={styles.readbackTo}>to {recipient.display_name}</Text>
+              <Text style={styles.readbackTo}>to {lt.recipient.display_name}</Text>
               <Text style={styles.readbackMeta}>
                 EchoPay Cash · Instant · No fees
               </Text>
@@ -390,11 +258,8 @@ export default function LocalTransferScreen() {
             <Text style={styles.fieldLabel}>Your PIN</Text>
             <TextInput
               style={styles.pinInput}
-              value={pin}
-              onChangeText={(t) => {
-                setPin(t.replace(/\D/g, '').slice(0, 4));
-                if (error) setError(null);
-              }}
+              value={lt.pin}
+              onChangeText={(t) => lt.setPin(t.replace(/\D/g, '').slice(0, 4))}
               keyboardType="number-pad"
               secureTextEntry
               maxLength={4}
@@ -403,22 +268,22 @@ export default function LocalTransferScreen() {
               autoFocus
             />
 
-            {error && <Text style={styles.errorText}>{error}</Text>}
+            {lt.error && <Text style={styles.errorText}>{lt.error}</Text>}
 
             <Pressable
-              onPress={onConfirm}
-              disabled={loading || pin.length < 4}
+              onPress={lt.confirmAndSend}
+              disabled={lt.loading || lt.pin.length < 4}
               style={({ pressed }) => [
                 styles.primaryButton,
-                (loading || pin.length < 4) && styles.primaryButtonDisabled,
-                pressed && !loading && pin.length === 4 && styles.primaryButtonPressed,
+                (lt.loading || lt.pin.length < 4) && styles.primaryButtonDisabled,
+                pressed && !lt.loading && lt.pin.length === 4 && styles.primaryButtonPressed,
               ]}
             >
-              {loading ? (
+              {lt.loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={styles.primaryButtonText}>
-                  Send {formatKoboToNaira(amountKobo)}
+                  Send {formatKoboToNaira(lt.amountKobo)}
                 </Text>
               )}
             </Pressable>
@@ -431,11 +296,6 @@ export default function LocalTransferScreen() {
       </ScrollView>
     </KeyboardAvoidingView>
   );
-}
-
-// Map AuthContext.user.username back to a Persona id used in constants/personas.ts.
-function asPersonaId(username: string): string {
-  return username.toLowerCase();
 }
 
 // ----------------------------------------------------- styles
