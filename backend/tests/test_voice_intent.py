@@ -1,0 +1,159 @@
+"""Tests for POST /voice/intent.
+
+Mirrors test_auth_voice_signup.py patterns: per-test SQLite via the
+`client` fixture, monkeypatch to avoid live Whisper/OpenAI calls.
+
+Coverage (6 tests):
+  1. Demo mode → hardcoded transfer intent (iya_tope, ₦5,000)
+  2. Balance fast-path ("what is my balance") → action=balance
+  3. Transfer fast-path iya_tope ("send five thousand to iya tope") → transfer_local
+  4. Transfer fast-path kosi ("send 200 naira to kosi") → transfer_local, kosi, 20_000
+  5. Unknown transcript ("hello there") → HTTP 200, action=unknown
+  6. Whisper unavailable → 503 voice_unavailable
+"""
+
+from __future__ import annotations
+
+import io
+import sys
+
+import pytest
+
+
+# ----------------------------------------------------------------- fixtures
+
+
+@pytest.fixture(autouse=True)
+def _reset_module_caches(client):  # noqa: ARG001
+    """Drop module-level caches that survive between tests."""
+    yield
+    for mod_name in (
+        "app.api.voice_intent",
+        "app.services.intent_parser",
+        "app.voice.proxy",
+        "app.voice.persona_match",
+    ):
+        sys.modules.pop(mod_name, None)
+    try:
+        from app.core import config as config_module
+        config_module.get_settings.cache_clear()
+    except (ImportError, AttributeError):
+        pass
+
+
+@pytest.fixture
+def mock_transcribe(monkeypatch):
+    """Return a setter that replaces `transcribe` in the voice_intent module."""
+
+    def _install(transcript: str | None = None, raise_unavailable: bool = False):
+        from app.api import voice_intent as vi_module
+        from app.voice import proxy as voice_proxy
+
+        async def fake_transcribe(audio_bytes: bytes, filename: str = "audio.m4a"):
+            if raise_unavailable:
+                raise voice_proxy.VoiceUnavailableError("mocked unavailable")
+            return transcript or ""
+
+        monkeypatch.setattr(vi_module, "transcribe", fake_transcribe)
+
+    return _install
+
+
+@pytest.fixture
+def mock_parse_intent(monkeypatch):
+    """Replace parse_intent so the test controls the returned IntentResult."""
+
+    def _install(intent: str, action: str, entities: dict | None = None):
+        from app.api import voice_intent as vi_module
+        from app.services.intent_parser import IntentResult
+
+        async def fake_parse_intent(transcript: str) -> IntentResult:
+            return IntentResult(intent=intent, action=action, entities=entities or {})
+
+        monkeypatch.setattr(vi_module, "parse_intent", fake_parse_intent)
+
+    return _install
+
+
+@pytest.fixture
+def demo_mode(monkeypatch):
+    """Enable VOICE_DEMO_MODE=true for the duration of the test."""
+    monkeypatch.setenv("VOICE_DEMO_MODE", "true")
+    from app.core import config as config_module
+    config_module.get_settings.cache_clear()
+
+
+# ----------------------------------------------------------------- helpers
+
+
+def _audio_payload() -> dict:
+    return {
+        "files": {"audio": ("audio.m4a", io.BytesIO(b"fake-audio"), "audio/m4a")},
+    }
+
+
+# ----------------------------------------------------------------- tests
+
+
+def test_demo_mode_returns_transfer_intent(client, demo_mode):
+    """VOICE_DEMO_MODE=true → hardcoded transcript resolves to iya_tope transfer."""
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["action"] == "transfer_local"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
+    assert data["transcript"] == "send five thousand to iya tope"
+
+
+def test_fast_path_balance_intent(client, mock_transcribe):
+    """Transcript containing 'balance' → balance intent, no LLM call."""
+    mock_transcribe(transcript="what is my balance")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "balance"
+    assert data["action"] == "balance"
+
+
+def test_fast_path_transfer_iya_tope(client, mock_transcribe):
+    """Transcript 'send five thousand to iya tope' → transfer to iya_tope, ₦5,000."""
+    mock_transcribe(transcript="send five thousand to iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["action"] == "transfer_local"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+def test_fast_path_transfer_kosi(client, mock_transcribe):
+    """Transcript 'send 200 naira to kosi' → transfer to kosi, ₦200 (20,000 kobo)."""
+    mock_transcribe(transcript="send 200 naira to kosi")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["action"] == "transfer_local"
+    assert data["entities"]["recipientId"] == "kosi"
+    assert data["entities"]["amountKobo"] == 20_000
+
+
+def test_unknown_intent_returns_200(client, mock_transcribe):
+    """Unclassifiable transcript → HTTP 200 with action='unknown', not 4xx."""
+    mock_transcribe(transcript="hello there how are you")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "unknown"
+    assert data["action"] == "unknown"
+
+
+def test_whisper_unavailable_503(client, mock_transcribe):
+    """VoiceUnavailableError propagates as 503."""
+    mock_transcribe(raise_unavailable=True)
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "VOICE_UNAVAILABLE"

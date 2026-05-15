@@ -24,6 +24,7 @@ from .api.auth import router as auth_router
 from .api.dva import router as dva_router
 from .api.webhooks import router as webhooks_router
 from .api.admin import router as admin_router
+from .api.voice_intent import router as voice_intent_router
 
 settings = get_settings()
 
@@ -62,3 +63,4 @@ app.include_router(auth_router)
 app.include_router(dva_router)
 app.include_router(webhooks_router)
 app.include_router(admin_router)
+app.include_router(voice_intent_router)
