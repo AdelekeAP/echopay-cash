@@ -111,15 +111,53 @@ export async function transferExternal(_params: {
   throw new Error('transferExternal: not implemented yet (PRD §3.6 follow-up PR)');
 }
 
+// ----------------------------------------------------------------- DVA
+
+export interface CreateDynamicVaResponse {
+  tx_id: string;
+  dva_number: string;
+  qr_payload: string;
+  amount_kobo: number;
+  reference: string;
+  expires_at: number;
+  merchant_business_name: string;
+  demo_mode: boolean;
+}
+
 /**
- * Create a Squad Dynamic VA for QR-receive. POST /dynamic-va/create.
- * Ships with the receive-QR backend integration PR.
+ * Create a per-QR Squad Dynamic VA. POST /dynamic-va/create.
+ *
+ * Auth: token from AuthContext (minted by /auth/voice-signup) goes in
+ * the Authorization header. The backend parses user_id out of the
+ * token; mobile treats the token as opaque.
+ *
+ * Idempotent: same `amountKobo` within a 5-minute bucket returns the
+ * same DVA. Different amount → fresh DVA.
  */
 export async function createDynamicVa(
-  _amount_kobo: number,
-  _ttl_seconds: number,
-): Promise<never> {
-  throw new Error('createDynamicVa: not implemented yet (DVA backend PR)');
+  amountKobo: number,
+  ttlSeconds: number = 300,
+  token: string | null,
+): Promise<CreateDynamicVaResponse> {
+  // DEMO TOKEN FORMAT — placeholder until §3.12 auth-gate PR adds real JWT.
+  // Mobile AuthContext treats this as opaque; any non-empty string is accepted.
+  // Format: demo_token_<user_id>_<unix_timestamp>
+  // DO NOT use this as a real auth token for any sensitive endpoint.
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  try {
+    const res = await axios.post<{ success: true; data: CreateDynamicVaResponse }>(
+      `${API_BASE_URL}/dynamic-va/create`,
+      { amount_kobo: amountKobo, ttl_seconds: ttlSeconds },
+      { headers, timeout: 12_000 },
+    );
+    return res.data.data;
+  } catch (err) {
+    throw _toBackendError(err);
+  }
 }
 
 /**
