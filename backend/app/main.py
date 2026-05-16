@@ -26,6 +26,7 @@ from .api.webhooks import router as webhooks_router
 from .api.admin import router as admin_router
 from .api.voice_intent import router as voice_intent_router
 from .api.loans import router as loans_router
+from .api.voice_proxy import router as voice_proxy_router
 
 settings = get_settings()
 
@@ -66,3 +67,4 @@ app.include_router(webhooks_router)
 app.include_router(admin_router)
 app.include_router(voice_intent_router)
 app.include_router(loans_router)
+app.include_router(voice_proxy_router)
