@@ -62,10 +62,17 @@ async def transcribe(audio_bytes: bytes, filename: str = "audio.m4a") -> str:
     fails for any reason. Raises TranscriptionEmptyError if Whisper
     returns whitespace-only text.
 
-    `language="en"` because our persona names romanize cleanly and
-    Whisper's English path is more reliable than its Yoruba path.
-    `prompt` biases the decoder toward the three persona names — that
-    materially improves match rate when the audio is noisy.
+    `language="en"` because our persona names romanize cleanly AND
+    forced English mode handles Nigerian Pidgin more reliably than
+    auto-detect (which sometimes mis-classifies Pidgin as Yoruba or
+    Igbo and produces garbled romanisation).
+
+    `prompt` biases the decoder toward two domains: (1) the three
+    persona names — keeps voice-signup match rate high; (2) Nigerian
+    Pidgin payment vocabulary — materially improves transcription of
+    "abeg", "comot", "wetin", "dey", and the K-suffix amount form
+    ("5K") which standard Whisper sometimes hears as "five kay" or
+    drops the K entirely. Token budget is well under Whisper's 224.
     """
     settings = get_settings()
 
@@ -85,7 +92,12 @@ async def transcribe(audio_bytes: bytes, filename: str = "audio.m4a") -> str:
             model="whisper-1",
             language="en",
             temperature=0,
-            prompt="Mama Risikat, Iya Tope, Kosi",
+            prompt=(
+                "Nigerian Pidgin English to a payment app. Personas: "
+                "Mama Risikat, Iya Tope, Kosi. Common words: abeg, "
+                "wetin, dey, sabi, comot, make I, give, send, transfer, "
+                "pay, balance, naira, kobo, QR, K, account, money."
+            ),
             response_format="json",
         )
     except VoiceUnavailableError:
