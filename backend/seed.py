@@ -101,8 +101,8 @@ PERSONAS = [
 
 # Musa's gig history — 12 inbound transactions from Mama / Iya Tope over
 # the past 30 days, varied at realistic offloader rates (₦1,500-3,000).
-# Total: ₦24,000. With this history + 30-day account age, Musa's
-# compute_credit_score() result is 726 → auto-approve band.
+# Total: ₦26,000. With this history + 30-day account age, Musa's
+# compute_credit_score() result is 730 → auto-approve band.
 #
 # Tuple shape: (counterparty_customer_identifier, amount_kobo, days_ago)
 MUSA_GIGS = [
@@ -119,6 +119,55 @@ MUSA_GIGS = [
     ("iya_tope_002",         300_000,  4),
     ("mama_risikat_001",     200_000,  1),
 ]
+
+
+# Mama's pre-demo activity to populate the anomaly panel at the 4:00
+# demo beat. Two-phase seed:
+#   Phase 1: 8 inbound qr_receive payments totaling ₦640,000. Funds
+#     Mama's wallet ABOVE her outbound need (₦454,150) so the next
+#     phase doesn't bankrupt her. qr_receive is in the master_va
+#     inbound list → both sum(wallets) and master_va go up by the
+#     same delta → drift stays 0.
+#   Phase 2: 10 outbound external_out transactions:
+#     - 9 typical small amounts (₦200-₦800) over the past 7 days
+#     - 1 anomalous ₦450,000 outbound 1 day ago
+#     external_out is in the master_va outbound list → sum(wallets)
+#     and master_va both go down by the same delta → drift stays 0.
+#
+# Z-score math for anomaly detection:
+#   9 small ≈ ₦4,150 total (mean ~₦461 each in kobo land)
+#   1 outlier at 45_000_000 kobo (₦450,000)
+#   mean = (415_000 + 45_000_000) / 10 ≈ 4.54M kobo
+#   stdev ≈ 13.5M kobo (dominated by outlier)
+#   z(outlier) ≈ |45M - 4.54M| / 13.5M ≈ 3.0 → HIGH severity flag
+#   z(typical) ≈ 0.3 → no flag
+#
+# Tuple shape: (amount_kobo, days_ago, idempotency_suffix)
+MAMA_DEMO_INBOUNDS = [
+    (8_000_000, 14, "qr_in_1"),  # ₦80,000
+    (8_000_000, 13, "qr_in_2"),
+    (8_000_000, 12, "qr_in_3"),
+    (8_000_000, 11, "qr_in_4"),
+    (8_000_000, 10, "qr_in_5"),
+    (8_000_000,  9, "qr_in_6"),
+    (8_000_000,  8, "qr_in_7"),
+    (8_000_000,  8, "qr_in_8"),
+]  # 8 × ₦80,000 = ₦640,000 total inbound
+
+MAMA_DEMO_OUTBOUNDS = [
+    # 9 small typical (₦200-₦800 range, in kobo)
+    (   20_000, 7, "out_typical_1"),  # ₦200
+    (   35_000, 7, "out_typical_2"),  # ₦350
+    (   50_000, 6, "out_typical_3"),  # ₦500
+    (   25_000, 6, "out_typical_4"),  # ₦250
+    (   70_000, 5, "out_typical_5"),  # ₦700
+    (   45_000, 4, "out_typical_6"),  # ₦450
+    (   60_000, 3, "out_typical_7"),  # ₦600
+    (   30_000, 2, "out_typical_8"),  # ₦300
+    (   80_000, 2, "out_typical_9"),  # ₦800
+    # 1 anomalous ₦450,000 (z ≈ 3.0σ → HIGH)
+    (45_000_000, 1, "out_anomaly"),
+]  # sum = 45_415_000 kobo = ₦454,150
 
 
 def _seed_musa_gigs(db) -> int:
@@ -195,6 +244,92 @@ def _seed_musa_gigs(db) -> int:
     return inserted
 
 
+def _seed_mama_demo_activity(db) -> int:
+    """Seed Mama's pre-demo inbound + outbound history.
+
+    Two-phase, conservation-preserving:
+      1. 8 qr_receive inbounds totaling ₦640,000 (credits Mama's wallet,
+         increments master_va via the inbound list — drift unchanged)
+      2. 10 external_out outbounds totaling ₦454,150 (debits Mama's
+         wallet, decrements master_va via the outbound list — drift
+         unchanged). 9 typical + 1 anomalous (₦450K) so that
+         /admin/anomalies returns a HIGH-severity flag at demo open.
+
+    Idempotent: each transaction's idempotency_key is derived from a
+    deterministic suffix ("mama_demo_<phase>_<suffix>"). Re-running
+    seed.main() inserts zero new rows after the first run.
+
+    Returns the count of NEW rows inserted (0 if already seeded).
+    """
+    mama = db.scalar(
+        select(User).where(User.customer_identifier == "mama_risikat_001")
+    )
+    if mama is None:
+        return 0
+
+    mama_wallet = db.get(Wallet, mama.id)
+    if mama_wallet is None:
+        return 0
+
+    inserted = 0
+    now = now_unix()
+
+    # Phase 1: qr_receive inbounds. Spread across days 8-14 ago so they
+    # precede the outbound activity chronologically.
+    for amount_kobo, days_ago, suffix in MAMA_DEMO_INBOUNDS:
+        idempotency_key = f"mama_demo_in_{suffix}"
+        existing = db.scalar(
+            select(Transaction).where(Transaction.idempotency_key == idempotency_key)
+        )
+        if existing is not None:
+            continue
+        when = now - (days_ago * 86_400)
+        db.add(Transaction(
+            id=f"mqi_{uuid.uuid4().hex[:16]}",
+            user_id=mama.id,
+            type="qr_receive",
+            direction="in",
+            amount_kobo=amount_kobo,
+            status="completed",
+            idempotency_key=idempotency_key,
+            created_at=when,
+            settled_at=when,
+        ))
+        mama_wallet.balance_kobo += amount_kobo
+        mama_wallet.version += 1
+        mama_wallet.updated_at = now
+        inserted += 1
+
+    # Phase 2: external_out outbounds. Days 1-7 ago. 9 typical + 1
+    # anomaly. external_out is the master_va outbound list entry,
+    # so conservation holds.
+    for amount_kobo, days_ago, suffix in MAMA_DEMO_OUTBOUNDS:
+        idempotency_key = f"mama_demo_out_{suffix}"
+        existing = db.scalar(
+            select(Transaction).where(Transaction.idempotency_key == idempotency_key)
+        )
+        if existing is not None:
+            continue
+        when = now - (days_ago * 86_400)
+        db.add(Transaction(
+            id=f"mqo_{uuid.uuid4().hex[:16]}",
+            user_id=mama.id,
+            type="external_out",
+            direction="out",
+            amount_kobo=amount_kobo,
+            status="completed",
+            idempotency_key=idempotency_key,
+            created_at=when,
+            settled_at=when,
+        ))
+        mama_wallet.balance_kobo -= amount_kobo
+        mama_wallet.version += 1
+        mama_wallet.updated_at = now
+        inserted += 1
+
+    return inserted
+
+
 def main() -> None:
     create_all()
     for spec in PERSONAS:
@@ -238,6 +373,15 @@ def main() -> None:
             print(f"seeded {n} gig transactions for Musa")
         else:
             print("skip Musa gig seed — already done")
+
+    # Mama's demo activity to populate the anomaly panel at 4:00 beat.
+    with db_session() as db:
+        n = _seed_mama_demo_activity(db)
+        db.commit()
+        if n > 0:
+            print(f"seeded {n} demo transactions for Mama (anomaly panel)")
+        else:
+            print("skip Mama demo seed — already done")
 
 
 if __name__ == "__main__":
