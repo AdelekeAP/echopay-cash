@@ -18,6 +18,7 @@ layer wraps errors into HTTP 503 squad_failed.
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any
 
 from .client import SquadClient, SquadError
@@ -57,15 +58,28 @@ async def create_dynamic_va(
     Raises:
         SquadError on transport / 4xx / 5xx failure (handled at endpoint).
     """
+    # Squad sandbox requires a caller-supplied transaction_ref for DVA
+    # initiate (rejects with `"transaction_ref" is required` otherwise).
+    # Generate one upfront and pass it through; Squad echoes it back as
+    # the reference. Prefix mirrors the synthetic-pool format in api/dva.py.
+    transaction_ref = f"ECHOPAYCASH_{uuid.uuid4().hex[:12]}"
+
+    # Squad sandbox's DVA initiate schema has shifted from the original
+    # PRD §4.2. Current required set (probed via 4xx error messages):
+    #   amount (string kobo), transaction_ref (caller-supplied),
+    #   email (any well-formed address; sandbox doesn't validate).
+    # Disallowed: merchant_business_name (was in original PRD; rejected
+    # by sandbox as "not allowed"). `duration` is still accepted.
     payload: dict[str, Any] = {
-        # PRD §4.2 says `amount` (kobo string) for transfer endpoints;
-        # for DVA initiate the body fields are amount/duration/business
-        # name. Pass amount as a string since other Squad endpoints
-        # standardize on string-kobo — defensive against type coercion.
         "amount": str(amount_kobo),
         "duration": duration_sec,
-        "merchant_business_name": merchant_business_name,
+        "transaction_ref": transaction_ref,
+        "email": "echopaycash@gmail.com",
     }
+    # Keep merchant_business_name reachable via closure for future
+    # restoration if Squad re-enables the field; reference it once so
+    # linters don't flag the unused parameter.
+    _ = merchant_business_name
 
     body = await client.post(
         "/virtual-account/initiate-dynamic-virtual-account",
@@ -88,7 +102,10 @@ async def create_dynamic_va(
             body=body,
         )
 
-    reference = _extract_reference(data)
+    # Prefer the ref Squad echoes back; fall back to the one we sent if
+    # sandbox omits it. Either way our local persistence + webhook
+    # matching uses the same string.
+    reference = _extract_reference(data) or transaction_ref
     expires_at = _extract_expires_at(data, duration_sec)
 
     return DynamicVAResult(

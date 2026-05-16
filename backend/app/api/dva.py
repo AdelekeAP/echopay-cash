@@ -19,6 +19,7 @@ Webhook settlement is a separate PR — pending rows here will flip to
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 import uuid
@@ -37,6 +38,7 @@ from ..squad.client import SquadAuthError, SquadError, get_squad_client
 from ..squad.dynamic_va import DynamicVAResult, create_dynamic_va
 
 router = APIRouter(prefix="/dynamic-va", tags=["dva"])
+logger = logging.getLogger("echopay.dva")
 
 # Idempotency bucket = 5 minutes (DVA default TTL). Same-amount requests
 # within an active DVA's window collapse to one row. After TTL expires,
@@ -227,7 +229,10 @@ async def _resolve_dva(
             duration_sec=ttl_seconds,
             merchant_business_name=merchant_business_name,
         )
+        return result, False
     except SquadAuthError as e:
+        # Bad sandbox key is a configuration error — surface loudly, do
+        # NOT silently fall back, otherwise we mask a deployment bug.
         raise HTTPException(
             status_code=503,
             detail={
@@ -237,15 +242,25 @@ async def _resolve_dva(
             },
         )
     except SquadError as e:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "squad_failed",
-                "message": "Couldn't create QR account. Try again.",
-                "cause": str(e),
-            },
+        # Sandbox flake (schema shift, empty pool, transient 5xx). The
+        # synthetic pool produces a real-looking 10-digit VA with a
+        # matching reference; the webhook + reconcile flows operate
+        # identically because they key off the persisted squad_ref, not
+        # the provider. Logged as demo_fallback so the response carries
+        # the flag back to mobile / admin for transparency.
+        logger.warning("dva: squad failed (%s) → synthetic fallback", e)
+        va_number = _next_synthetic_dva()
+        reference = f"ECHOPAYCASH_fallback_{uuid.uuid4().hex[:8]}"
+        return (
+            DynamicVAResult(
+                {
+                    "va_number": va_number,
+                    "reference": reference,
+                    "expires_at": int(time.time()) + ttl_seconds,
+                }
+            ),
+            True,
         )
-    return result, False
 
 
 def _build_qr_payload(dva_number: str, amount_kobo: int, tx_id: str) -> str:
