@@ -29,7 +29,16 @@ from nacl.signing import SigningKey, VerifyKey
 # Stored alongside the SQLite db; gitignored. In production this would
 # be an HSM / KMS-managed key. Hackathon: just persist it next to the
 # db so restarts don't break previously-issued permits.
-_KEY_PATH = Path(__file__).resolve().parents[2] / "server_ed25519.key"
+#
+# Override via ECHOPAY_SERVER_KEY_PATH — used by the Docker container
+# to mount the key on a persistent volume (/data/server_ed25519.key)
+# so permits survive container restarts.
+_KEY_PATH = Path(
+    os.environ.get(
+        "ECHOPAY_SERVER_KEY_PATH",
+        str(Path(__file__).resolve().parents[2] / "server_ed25519.key"),
+    )
+)
 
 
 def _load_or_create_keypair() -> SigningKey:

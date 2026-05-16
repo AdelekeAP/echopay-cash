@@ -1,0 +1,33 @@
+# Build artefacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local venv — image installs its own
+.venv/
+venv/
+
+# Local DB + key — these live on the /data volume, not in the image
+echopay.db
+echopay.db-shm
+echopay.db-wal
+*.sqlite3-journal
+server_ed25519.key
+*.key
+*.pem
+
+# Secrets — set via env_file / runtime env, NEVER baked in
+.env
+.env.local
+.env.*.local
+
+# Tests + dev tooling — keep image small
+tests/
+.coverage
+htmlcov/
+
+# Misc
+.DS_Store
+*.log
