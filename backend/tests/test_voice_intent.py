@@ -214,3 +214,234 @@ def test_qr_generate_no_amount(client, mock_transcribe):
     assert data["intent"] == "qr_generate"
     assert data["action"] == "qr_generate"
     assert "amountKobo" not in data["entities"]
+
+
+# ----------------------------------------------------------------- Pidgin tests
+#
+# PRD Challenge 02 "language" rubric dimension. Nigerian Pidgin is the
+# lingua franca of informal commerce — the target persona for EchoPay
+# Cash. These tests assert that Pidgin commands route to the same
+# intents as their English equivalents through three layers:
+# preprocessing → regex → LLM (the LLM is mocked at the unit level;
+# tests here exercise the fast-path layers only).
+
+
+# ---- Preprocessing (5 tests) -----------------------------------------------
+
+
+def test_pidgin_preprocess_strips_abeg_prefix(client, mock_transcribe):
+    """'abeg send 5000 to iya tope' → 'abeg' stripped → transfer."""
+    mock_transcribe(transcript="abeg send 5000 to iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+def test_pidgin_preprocess_k_suffix_digit(client, mock_transcribe):
+    """'send 5K to iya tope' → preprocess normalizes 5K → 5000 → transfer."""
+    mock_transcribe(transcript="send 5K to iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+def test_pidgin_preprocess_k_suffix_word(client, mock_transcribe):
+    """'send five K to iya tope' → spoken K resolves via _MULTIPLIERS."""
+    mock_transcribe(transcript="send five K to iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+def test_pidgin_preprocess_smart_quotes_normalized(client, mock_transcribe):
+    """Curly apostrophes from Whisper don't break recognition."""
+    # Note: smart-quote normalization runs in preprocessing.
+    mock_transcribe(transcript="abeg, send ’5000’ to iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+def test_pidgin_preprocess_period_intrusion_fixed(client, mock_transcribe):
+    """'how much I.dey hold' → period intrusion fixed → balance fast-path."""
+    mock_transcribe(transcript="how much I.dey hold")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "balance"
+    assert data["action"] == "balance"
+
+
+# ---- Transfer Pidgin (5 tests) ---------------------------------------------
+
+
+def test_pidgin_transfer_give_preposition(client, mock_transcribe):
+    """'send five thousand give iya tope' — classic Pidgin give-prep."""
+    mock_transcribe(transcript="send five thousand give iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["action"] == "transfer_local"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+def test_pidgin_transfer_make_i(client, mock_transcribe):
+    """'make I send five thousand to iya tope' — make-I intent marker."""
+    mock_transcribe(transcript="make I send five thousand to iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+def test_pidgin_transfer_abeg_prefix(client, mock_transcribe):
+    """'abeg pay iya tope ten thousand' — politeness + pay-verb variant."""
+    mock_transcribe(transcript="abeg pay iya tope ten thousand")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 1_000_000
+
+
+def test_pidgin_transfer_k_suffix(client, mock_transcribe):
+    """'send 5K give iya tope' — full Pidgin: K-suffix + give-prep."""
+    mock_transcribe(transcript="send 5K give iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+def test_pidgin_transfer_inverted_order(client, mock_transcribe):
+    """'send iya tope five thousand naira' — recipient before amount."""
+    mock_transcribe(transcript="send iya tope five thousand naira")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
+
+
+# ---- QR generate Pidgin (3 tests) ------------------------------------------
+
+
+def test_pidgin_qr_make_imperative(client, mock_transcribe):
+    """'make 200 qr' — make-imperative (existing regex hits this)."""
+    mock_transcribe(transcript="make 200 qr")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "qr_generate"
+    assert data["entities"]["amountKobo"] == 20_000
+
+
+def test_pidgin_qr_set_verb(client, mock_transcribe):
+    """'set 500 qr' — set as alternate Pidgin verb (added in Chunk 3)."""
+    mock_transcribe(transcript="set 500 qr")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "qr_generate"
+    assert data["entities"]["amountKobo"] == 50_000
+
+
+def test_pidgin_qr_postpositional(client, mock_transcribe):
+    """'qr for two hundred naira' — QR-first postpositional construction."""
+    mock_transcribe(transcript="qr for two hundred naira")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "qr_generate"
+    assert data["entities"]["amountKobo"] == 20_000
+
+
+# ---- Balance Pidgin (3 tests) ----------------------------------------------
+
+
+def test_pidgin_balance_how_much_i_get(client, mock_transcribe):
+    """'how much I get' — most common Pidgin balance form."""
+    mock_transcribe(transcript="how much I get")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "balance"
+    assert data["action"] == "balance"
+
+
+def test_pidgin_balance_dey_construction(client, mock_transcribe):
+    """'how much dey my account' — dey-construction."""
+    mock_transcribe(transcript="how much dey my account")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "balance"
+
+
+def test_pidgin_balance_wetin_remain(client, mock_transcribe):
+    """'wetin remain for my account' — wetin-construction."""
+    mock_transcribe(transcript="wetin remain for my account")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "balance"
+
+
+# ---- Cancel Pidgin (2 tests) -----------------------------------------------
+
+
+def test_pidgin_cancel_no_mind(client, mock_transcribe):
+    """'no mind' — most common Pidgin cancel."""
+    mock_transcribe(transcript="no mind")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "cancel"
+    assert data["action"] == "cancel"
+
+
+def test_pidgin_cancel_leave_am(client, mock_transcribe):
+    """'leave am' — am-pronoun cancel variant."""
+    mock_transcribe(transcript="leave am")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "cancel"
+
+
+# ---- Regression guard (1 test) ---------------------------------------------
+
+
+def test_pidgin_no_false_positive_on_pure_english(client, mock_transcribe):
+    """REGRESSION: pure English transfer must still classify cleanly.
+
+    Pidgin preprocessing/regex must not corrupt the English path. This
+    test re-runs the canonical transfer phrasing AFTER all Pidgin
+    additions to verify no priority-ordering regression.
+    """
+    mock_transcribe(transcript="send 5000 to iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["action"] == "transfer_local"
+    assert data["entities"]["recipientId"] == "iya_tope"
+    assert data["entities"]["amountKobo"] == 500_000
