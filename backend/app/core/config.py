@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     # signup flow off seed.py data alone.
     voice_demo_mode: bool = False
 
+    # Path C demo-mode for voice biometric proxy (app/api/voice_proxy.py).
+    # When true, /api/v1/voice/biometrics/* endpoints return synthetic
+    # success responses without calling the :8000 voice service. Maps to
+    # PRD §11.5 "pre-record fallback" risk mitigation. Default True for
+    # demo-day safety; flip to False after :8000 reachability is verified
+    # at dress rehearsal.
+    voice_biometric_demo_mode: bool = True
+    voice_biometric_service_url: str = "http://localhost:8000"
+    voice_biometric_timeout_seconds: int = 10
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
