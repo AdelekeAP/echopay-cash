@@ -9,6 +9,7 @@
 // the tx to the local AsyncStorage cache so the UX never breaks during
 // the demo. This mirrors the offline-first contract from PRD §15.
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Account, User } from '../types';
 import { TransactionRow } from '../types/transaction';
 import { PERSONAS, getPersonaById } from '../constants/personas';
@@ -238,9 +239,12 @@ async function postInNetwork(body: InNetworkServerRequest): Promise<InNetworkSer
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2500);
   try {
+    const token = await AsyncStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(`${API_BASE_URL}/transfer/in-network`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });

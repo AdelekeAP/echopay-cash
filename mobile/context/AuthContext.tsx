@@ -122,8 +122,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const updatedAccount = await accountAPI.getAccount();
       setAccount(updatedAccount);
       await AsyncStorage.setItem('account', JSON.stringify(updatedAccount));
-    } catch (error) {
-      console.error('Error refreshing account:', error);
+    } catch {
+      // accountAPI.getAccount hits GET /account/ — a legacy demo-bank
+      // endpoint that doesn't exist on the echopay-cash backend (returns
+      // 404). Wallet state is kept current via useWallet's optimistic
+      // applyDebit/applyCredit instead. Silenced to keep LogBox clean
+      // during demo; TODO(phase-1) is to remove accountAPI calls
+      // entirely once all sites are migrated to squad-api.
     }
   };
 
