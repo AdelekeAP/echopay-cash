@@ -198,7 +198,14 @@ export default function HomeScreen() {
                       works regardless of connectivity so it's testable on demo day
             Receive → DVA QR to take money in */}
         <View style={styles.quickActionsContainer}>
-          <Pressable style={styles.actionPill} onPress={() => router.push('/transfer')}>
+          {/* Demo-safety override: Send pill points at /local-transfer
+              until the legacy /transfer screen (external bank flow) is
+              wired to real Squad payout. The /transfer screen renders
+              demo-bank UI that 404s on its /banks API call. Revert this
+              one-line target back to '/transfer' once external payouts
+              ship — Funbi's pill comment above documents the long-term
+              architecture. */}
+          <Pressable style={styles.actionPill} onPress={() => router.push('/local-transfer')}>
             <View style={styles.actionPillIcon}>
               <Ionicons name="paper-plane-outline" size={22} color={Echopay.accent} />
             </View>
