@@ -117,18 +117,45 @@ _MULTIPLIERS: dict[str, int] = {
 
 _LLM_SYSTEM = (
     "You extract payment intents for a Nigerian market-women mobile wallet.\n"
+    "Users speak English AND Nigerian Pidgin English. In Pidgin: "
+    "'give' after a verb (send/pay/transfer) means 'to'; "
+    "'K' suffix means thousands (5K = 5000); "
+    "'make I' = 'let me'; 'wetin' = 'what'; 'dey' = 'is/are'; "
+    "'comot' = 'produce/take out'; 'abeg' = 'please'.\n"
     "Known recipients (use exact IDs): mama_risikat, iya_tope, kosi.\n"
+    "Recipient nicknames map to full IDs: 'iya' alone or 'tope' alone → "
+    "iya_tope; 'mama' alone or 'risikat' alone → mama_risikat.\n"
     "Return ONLY valid JSON — no markdown, no explanation:\n"
     '{"intent":"transfer"|"balance"|"qr_generate"|"unknown",'
     '"recipientId":"mama_risikat"|"iya_tope"|"kosi"|null,'
     '"amountNaira":number|null}\n'
     "Examples:\n"
+    # English (unchanged from prior PR):
     '- "send 5000 to iya tope" → {"intent":"transfer","recipientId":"iya_tope","amountNaira":5000}\n'
     '- "pay kosi two hundred naira" → {"intent":"transfer","recipientId":"kosi","amountNaira":200}\n'
     '- "generate 500 QR" → {"intent":"qr_generate","recipientId":null,"amountNaira":500}\n'
     '- "make a QR for 200 naira" → {"intent":"qr_generate","recipientId":null,"amountNaira":200}\n'
     '- "what is my balance" → {"intent":"balance","recipientId":null,"amountNaira":null}\n'
-    '- "hello" → {"intent":"unknown","recipientId":null,"amountNaira":null}'
+    '- "hello" → {"intent":"unknown","recipientId":null,"amountNaira":null}\n'
+    # Pidgin transfer — give-preposition, make-I, K-suffix, am-pronoun:
+    '- "send five thousand give iya tope" → {"intent":"transfer","recipientId":"iya_tope","amountNaira":5000}\n'
+    '- "make i send five thousand to iya tope" → {"intent":"transfer","recipientId":"iya_tope","amountNaira":5000}\n'
+    '- "pay kosi 5k" → {"intent":"transfer","recipientId":"kosi","amountNaira":5000}\n'
+    # Critical edge case: partial recipient token (no "tope")
+    '- "give iya five thousand" → {"intent":"transfer","recipientId":"iya_tope","amountNaira":5000}\n'
+    '- "give iya tope ten thousand naira" → {"intent":"transfer","recipientId":"iya_tope","amountNaira":10000}\n'
+    '- "transfer am five thousand to iya" → {"intent":"transfer","recipientId":"iya_tope","amountNaira":5000}\n'
+    # Pidgin QR generate — make/comot/set verbs, desire form:
+    '- "make 200 qr" → {"intent":"qr_generate","recipientId":null,"amountNaira":200}\n'
+    '- "i wan collect 500, give me qr" → {"intent":"qr_generate","recipientId":null,"amountNaira":500}\n'
+    '- "comot 1000 qr" → {"intent":"qr_generate","recipientId":null,"amountNaira":1000}\n'
+    # Pidgin balance:
+    '- "how much i get" → {"intent":"balance","recipientId":null,"amountNaira":null}\n'
+    '- "wetin remain for my account" → {"intent":"balance","recipientId":null,"amountNaira":null}\n'
+    # Pidgin cancel — falls through to unknown (cancel is fast-path only;
+    # LLM must not hallucinate a transfer/balance from these):
+    '- "no mind" → {"intent":"unknown","recipientId":null,"amountNaira":null}\n'
+    '- "leave am" → {"intent":"unknown","recipientId":null,"amountNaira":null}'
 )
 
 
