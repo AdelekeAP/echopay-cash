@@ -292,7 +292,7 @@ export default function LocalTransferScreen() {
               ]}
             >
               {lt.loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={Echopay.cardBg} />
               ) : (
                 <Text style={styles.primaryButtonText}>
                   Send {formatKoboToNaira(lt.amountKobo)}
@@ -527,11 +527,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonDisabled: { backgroundColor: Echopay.accentMuted },
   primaryButtonPressed: { backgroundColor: Echopay.accentPressed },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  primaryButtonText: { color: Echopay.cardBg, fontSize: 16, fontWeight: '600' },
 
   hintText: {
     fontSize: 12,
