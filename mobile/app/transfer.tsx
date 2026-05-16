@@ -22,6 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import { Bank, RecipientInfo } from '../types';
 import VoiceVerificationModal from '../components/VoiceVerificationModal';
 import { voiceBiometricsService } from '../services/voiceService';
+import { Echopay } from '../constants/theme';
 
 type Step = 'recipient' | 'amount' | 'confirm' | 'pin' | 'success';
 
@@ -360,7 +361,7 @@ export default function TransferScreen() {
         disabled={loading || accountNumber.length !== 10}
       >
         {loading ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={Echopay.cardBg} />
         ) : (
           <Text style={styles.buttonText}>Continue</Text>
         )}
@@ -380,7 +381,7 @@ export default function TransferScreen() {
   const renderAmountStep = () => (
     <>
       <TouchableOpacity style={styles.backButton} onPress={() => setStep('recipient')}>
-        <Ionicons name="arrow-back" size={24} color="#333" />
+        <Ionicons name="arrow-back" size={24} color={Echopay.text} />
       </TouchableOpacity>
 
       <Text style={styles.stepTitle}>Enter Amount</Text>
@@ -388,7 +389,7 @@ export default function TransferScreen() {
       {/* Recipient Card */}
       <View style={styles.recipientCard}>
         <View style={styles.recipientIcon}>
-          <Ionicons name="person" size={24} color="#E31937" />
+          <Ionicons name="person" size={24} color={Echopay.danger} />
         </View>
         <View>
           <Text style={styles.recipientName}>{recipient?.account_name}</Text>
@@ -441,7 +442,7 @@ export default function TransferScreen() {
     return (
       <>
         <TouchableOpacity style={styles.backButton} onPress={() => setStep('amount')}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
+          <Ionicons name="arrow-back" size={24} color={Echopay.text} />
         </TouchableOpacity>
 
         <Text style={styles.stepTitle}>Confirm Transfer</Text>
@@ -475,14 +476,14 @@ export default function TransferScreen() {
         {/* Security Requirements Card */}
         <View style={styles.securityCard}>
           <View style={styles.securityHeader}>
-            <Ionicons name="shield-checkmark" size={18} color="#00B050" />
+            <Ionicons name="shield-checkmark" size={18} color={Echopay.success} />
             <Text style={styles.securityTitle}>Security Verification</Text>
           </View>
 
           <View style={styles.securityItems}>
             {/* PIN - always required */}
             <View style={styles.securityItem}>
-              <Ionicons name="keypad" size={16} color="#333" />
+              <Ionicons name="keypad" size={16} color={Echopay.text} />
               <Text style={styles.securityItemText}>PIN</Text>
               <Text style={styles.securityRequired}>Required</Text>
             </View>
@@ -493,7 +494,7 @@ export default function TransferScreen() {
                 <Ionicons
                   name={voiceVerified ? "checkmark-circle" : "mic"}
                   size={16}
-                  color={voiceVerified ? "#00B050" : "#333"}
+                  color={voiceVerified ? Echopay.success : Echopay.text}
                 />
                 <Text style={styles.securityItemText}>Voice ID</Text>
                 <Text style={[
@@ -511,7 +512,7 @@ export default function TransferScreen() {
                 <Ionicons
                   name={faceVerified ? "checkmark-circle" : (biometricType === 'faceid' ? "scan" : "finger-print")}
                   size={16}
-                  color={faceVerified ? "#00B050" : "#333"}
+                  color={faceVerified ? Echopay.success : Echopay.text}
                 />
                 <Text style={styles.securityItemText}>
                   {biometricType === 'faceid' ? 'Face ID' : 'Fingerprint'}
@@ -535,7 +536,7 @@ export default function TransferScreen() {
 
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#E31937" />
+            <ActivityIndicator size="large" color={Echopay.danger} />
             <Text style={styles.loadingText}>Processing transfer...</Text>
           </View>
         ) : (
@@ -563,7 +564,7 @@ export default function TransferScreen() {
   const renderPinStep = () => (
     <>
       <TouchableOpacity style={styles.backButton} onPress={() => setStep('confirm')}>
-        <Ionicons name="arrow-back" size={24} color="#333" />
+        <Ionicons name="arrow-back" size={24} color={Echopay.text} />
       </TouchableOpacity>
 
       <Text style={styles.stepTitle}>Enter PIN</Text>
@@ -587,7 +588,7 @@ export default function TransferScreen() {
         disabled={loading || pin.length < 4}
       >
         {loading ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={Echopay.cardBg} />
         ) : (
           <Text style={styles.buttonText}>Complete Transfer</Text>
         )}
@@ -600,7 +601,7 @@ export default function TransferScreen() {
   const renderSuccessStep = () => (
     <View style={styles.successContainer}>
       <View style={styles.successIcon}>
-        <Ionicons name="checkmark-circle" size={80} color="#4CAF50" />
+        <Ionicons name="checkmark-circle" size={80} color={Echopay.success} />
       </View>
       <Text style={styles.successTitle}>Transfer Successful!</Text>
       <Text style={styles.successAmount}>{formatCurrency(amount)}</Text>
@@ -627,7 +628,7 @@ export default function TransferScreen() {
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="close" size={28} color="#333" />
+              <Ionicons name="close" size={28} color={Echopay.text} />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Transfer Money</Text>
             <View style={{ width: 28 }} />
@@ -662,7 +663,7 @@ export default function TransferScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Echopay.cardBg,
   },
   keyboardView: {
     flex: 1,
@@ -676,12 +677,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: Echopay.border,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: Echopay.text,
   },
   content: {
     flex: 1,
@@ -693,12 +694,12 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#1a1a1a',
+    color: Echopay.text,
     marginBottom: 8,
   },
   stepSubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: Echopay.textMuted,
     marginBottom: 24,
   },
   inputContainer: {
@@ -707,63 +708,63 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: Echopay.text,
     marginBottom: 8,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Echopay.border,
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: Echopay.cardSoft,
   },
   pickerContainer: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Echopay.border,
     borderRadius: 12,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: Echopay.cardSoft,
     overflow: 'hidden',
   },
   picker: {
     height: 50,
   },
   button: {
-    backgroundColor: '#E31937',
+    backgroundColor: Echopay.danger,
     borderRadius: 12,
     padding: 18,
     alignItems: 'center',
     marginTop: 16,
   },
   buttonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: Echopay.accentMuted,
   },
   buttonText: {
-    color: '#fff',
+    color: Echopay.cardBg,
     fontSize: 18,
     fontWeight: '600',
   },
   hint: {
     marginTop: 32,
     padding: 16,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Echopay.cardSoft,
     borderRadius: 12,
   },
   hintTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: Echopay.text,
     marginBottom: 8,
   },
   hintText: {
     fontSize: 12,
-    color: '#666',
+    color: Echopay.textMuted,
     marginBottom: 4,
   },
   recipientCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f9f9f9',
+    backgroundColor: Echopay.cardSoft,
     padding: 16,
     borderRadius: 12,
     marginBottom: 24,
@@ -772,7 +773,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#E3193715',
+    backgroundColor: Echopay.dangerSoft,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -780,31 +781,31 @@ const styles = StyleSheet.create({
   recipientName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: Echopay.text,
   },
   recipientBank: {
     fontSize: 14,
-    color: '#666',
+    color: Echopay.textMuted,
     marginTop: 2,
   },
   recipientAccount: {
     fontSize: 12,
-    color: '#999',
+    color: Echopay.textSubtle,
     marginTop: 2,
   },
   amountInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Echopay.border,
     borderRadius: 12,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: Echopay.cardSoft,
     paddingHorizontal: 16,
   },
   currencySymbol: {
     fontSize: 24,
     fontWeight: '600',
-    color: '#333',
+    color: Echopay.text,
     marginRight: 8,
   },
   amountInput: {
@@ -815,11 +816,11 @@ const styles = StyleSheet.create({
   },
   balanceText: {
     fontSize: 12,
-    color: '#666',
+    color: Echopay.textMuted,
     marginTop: 8,
   },
   confirmCard: {
-    backgroundColor: '#f9f9f9',
+    backgroundColor: Echopay.cardSoft,
     borderRadius: 16,
     padding: 20,
     marginBottom: 24,
@@ -831,21 +832,21 @@ const styles = StyleSheet.create({
   },
   confirmLabel: {
     fontSize: 14,
-    color: '#666',
+    color: Echopay.textMuted,
   },
   confirmValue: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: Echopay.text,
   },
   confirmAmount: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#E31937',
+    color: Echopay.danger,
   },
   divider: {
     height: 1,
-    backgroundColor: '#ddd',
+    backgroundColor: Echopay.border,
     marginVertical: 12,
   },
   pinContainer: {
@@ -854,7 +855,7 @@ const styles = StyleSheet.create({
   },
   pinInput: {
     borderWidth: 2,
-    borderColor: '#E31937',
+    borderColor: Echopay.danger,
     borderRadius: 12,
     padding: 20,
     fontSize: 32,
@@ -866,7 +867,7 @@ const styles = StyleSheet.create({
   pinHint: {
     textAlign: 'center',
     fontSize: 12,
-    color: '#999',
+    color: Echopay.textSubtle,
     marginTop: 16,
   },
   successContainer: {
@@ -881,22 +882,22 @@ const styles = StyleSheet.create({
   successTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#1a1a1a',
+    color: Echopay.text,
     marginBottom: 8,
   },
   successAmount: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#4CAF50',
+    color: Echopay.success,
   },
   successRecipient: {
     fontSize: 16,
-    color: '#666',
+    color: Echopay.textMuted,
     marginTop: 8,
     marginBottom: 32,
   },
   biometricButton: {
-    backgroundColor: '#E31937',
+    backgroundColor: Echopay.danger,
     borderRadius: 12,
     padding: 18,
     flexDirection: 'row',
@@ -906,7 +907,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   biometricButtonText: {
-    color: '#fff',
+    color: Echopay.cardBg,
     fontSize: 18,
     fontWeight: '600',
   },
@@ -917,10 +918,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 12,
     borderWidth: 1,
-    borderColor: '#E31937',
+    borderColor: Echopay.danger,
   },
   secondaryButtonText: {
-    color: '#E31937',
+    color: Echopay.danger,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -931,15 +932,15 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666',
+    color: Echopay.textMuted,
   },
   securityCard: {
-    backgroundColor: '#f0f8f4',
+    backgroundColor: Echopay.successSoft,
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#00B05030',
+    borderColor: Echopay.successSoft,
   },
   securityHeader: {
     flexDirection: 'row',
@@ -950,7 +951,7 @@ const styles = StyleSheet.create({
   securityTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#00B050',
+    color: Echopay.success,
   },
   securityItems: {
     gap: 8,
@@ -962,20 +963,20 @@ const styles = StyleSheet.create({
   },
   securityItemText: {
     fontSize: 14,
-    color: '#333',
+    color: Echopay.text,
     flex: 1,
   },
   securityRequired: {
     fontSize: 12,
-    color: '#666',
+    color: Echopay.textMuted,
     fontWeight: '500',
   },
   securityVerified: {
-    color: '#00B050',
+    color: Echopay.success,
   },
   securityNote: {
     fontSize: 12,
-    color: '#666',
+    color: Echopay.textMuted,
     marginTop: 12,
     fontStyle: 'italic',
   },
@@ -986,6 +987,6 @@ const styles = StyleSheet.create({
   },
   skipButtonText: {
     fontSize: 14,
-    color: '#666',
+    color: Echopay.textMuted,
   },
 });

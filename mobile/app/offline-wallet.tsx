@@ -276,7 +276,7 @@ export default function OfflineWalletScreen() {
           ]}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={Echopay.cardBg} />
           ) : (
             <View style={styles.primaryButtonInner}>
               <Text style={styles.primaryButtonText}>
@@ -291,7 +291,7 @@ export default function OfflineWalletScreen() {
               <Ionicons
                 name={mode === 'lock' ? 'arrow-down' : 'arrow-up'}
                 size={18}
-                color="#fff"
+                color={Echopay.cardBg}
                 style={{ marginLeft: 8 }}
               />
             </View>
@@ -495,7 +495,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: Echopay.dangerSoft,
     borderWidth: 1,
-    borderColor: '#FBD5D5',
+    borderColor: Echopay.dangerSoft,
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -513,7 +513,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: Echopay.successSoft,
     borderWidth: 1,
-    borderColor: '#C7E8D9',
+    borderColor: Echopay.successSoft,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -537,7 +537,7 @@ const styles = StyleSheet.create({
   primaryButtonInner: { flexDirection: 'row', alignItems: 'center' },
   primaryButtonDisabled: { backgroundColor: Echopay.accentMuted },
   primaryButtonPressed: { backgroundColor: Echopay.accentPressed },
-  primaryButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  primaryButtonText: { color: Echopay.cardBg, fontSize: 15, fontWeight: '600' },
 
   // note — hairline border to match design language
   note: {
