@@ -55,6 +55,7 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
         "app.api.loans",
         "app.api.admin",
         "app.api.auth",
+        "app.voice.proxy",
         "app.services.intent_parser",
         "app.main",
         "app.models",
