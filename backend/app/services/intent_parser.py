@@ -38,12 +38,39 @@ class IntentResult:
 # ----------------------------------------------------------------- regex
 
 _BALANCE_RE = re.compile(
-    r"\b(balance|balan[cs]e|how much|account balance|my balance|"
-    r"how much.{0,15}account|check.{0,10}balance)\b",
+    r"\b("
+    # English forms (already shipped pre-Pidgin):
+    r"balance|balan[cs]e|how much|account balance|my balance|"
+    r"how much.{0,15}account|check.{0,10}balance"
+    r"|"
+    # Pidgin extensions:
+    #  "How much I get / dey / hold" — most common form
+    #  "How money I get" — alternate quantifier
+    r"how (much|money) (i )?(get|dey|hold)"
+    r"|"
+    #  "Wetin remain for my account", "Wetin dey for my account"
+    r"wetin (remain|dey).{0,10}account"
+    r"|"
+    #  Inverted: "I get how much"
+    r"i get how much"
+    r")\b",
     re.IGNORECASE,
 )
 _CANCEL_RE = re.compile(
-    r"\b(cancel|stop|abort|never mind|nevermind)\b",
+    r"\b("
+    # English forms:
+    r"cancel|stop|abort|never mind|nevermind"
+    r"|"
+    # Pidgin extensions:
+    #  "No mind" — most common dismissal
+    r"no mind"
+    r"|"
+    #  "Cancel am / leave am / forget am / stop am" — am-pronoun
+    r"(cancel|leave|forget|stop) am"
+    r"|"
+    #  "No do am again" — explicit cancel
+    r"no do( am)?( again)?"
+    r")\b",
     re.IGNORECASE,
 )
 # PRD §1 Script A 2:00 beat — "Generate ₦200 QR for okra." Trigger words
@@ -51,7 +78,16 @@ _CANCEL_RE = re.compile(
 # false positives on the persona+amount fast-path (no transfer phrasing
 # contains "QR"). Runs BEFORE persona match for the same reason.
 _QR_GENERATE_RE = re.compile(
-    r"\b(generate|create|make|get me)\b.{0,20}\b(qr|q\.?r|cue arr)\b",
+    # Three alternative phrasings — verb-first, QR-first, desire-form.
+    # Pidgin verbs `set` / `comot` / `build` join the original
+    # English `generate|create|make|get me` set.
+    r"\b(generate|create|make|get me|set|comot|build)\b.{0,20}\b(qr|q\.?r|cue arr)\b"
+    r"|"
+    # QR-first postpositional: "QR for 200 naira", "QR ₦200 abeg"
+    r"\b(qr|q\.?r)\b.{0,15}\b(for|amount|of|valued)\b"
+    r"|"
+    # Desire expression: "I wan collect ₦200, give me QR"
+    r"\bi\s+wan\s+(collect|generate|make)\b.{0,30}\b(qr|q\.?r)\b",
     re.IGNORECASE,
 )
 _DIGIT_AMOUNT_RE = re.compile(r"\b(\d[\d,]*)\b")
