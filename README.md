@@ -29,7 +29,34 @@ reconciliation dashboard were built specifically for this hackathon.
 | `docs/` | Architecture and design docs. Start with [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). |
 | `EchoPay_Cash_PRD.md` | Full implementation spec — data model, endpoints, screens, offline shell, decision tree. |
 
-## Run locally — 10-minute clone-to-demo path
+## Run locally — 2-minute Docker path (recommended)
+
+```bash
+git clone https://github.com/AdelekeAP/echopay-cash
+cd echopay-cash
+cp backend/.env.example backend/.env
+# edit backend/.env: fill in SQUAD_SECRET_KEY, SQUAD_PUBLIC_KEY, SQUAD_MERCHANT_ID
+docker compose up -d --build
+# verify:
+curl http://localhost:8100/health
+# → {"success":true,"data":{"status":"ok"}}
+```
+
+The container persists SQLite + the ed25519 server signing key on a named
+volume (`echopay-data`), so permits and balances survive `docker compose
+restart`. To start over: `docker compose down -v`. The same `docker
+compose up -d --build` is what we run on the production droplet.
+
+Mobile dev server (separate, runs on your host):
+
+```bash
+cd mobile && npm install && cp .env.example .env
+# edit .env: EXPO_PUBLIC_API_BASE_URL=http://<dev-machine-or-droplet-IP>:8100
+npx expo start
+# scan the QR with Expo Go
+```
+
+## Run locally — manual venv path (if you'd rather not use Docker)
 
 ```bash
 git clone https://github.com/AdelekeAP/echopay-cash
