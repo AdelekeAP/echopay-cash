@@ -311,6 +311,94 @@ export async function parseIntent(
   }
 }
 
+// ----------------------------------------------------------------- loans
+
+export interface LoanRow {
+  loan_id: string;
+  status: 'pending' | 'approved' | 'disbursed' | 'repaid' | 'declined' | 'manual_review';
+  amount_kobo: number;
+  repaid_kobo: number;
+  outstanding_kobo: number;
+  credit_score_at_request: number;
+  decision_reason: string | null;
+  created_at: number;
+  approved_at: number | null;
+  disbursed_at: number | null;
+  repaid_at: number | null;
+}
+
+export interface RequestLoanResponse extends LoanRow {
+  credit_score: number;
+  credit_breakdown: Record<string, number>;
+}
+
+/**
+ * POST /loans/request — credit-score-driven instant decisioning.
+ *
+ * Backend auto-disburses when score ≥ 700, returns 'manual_review' for
+ * 500-699, 'declined' for <500. Single active loan per user enforced
+ * with 409 active_loan_exists.
+ */
+export async function requestLoan(
+  amountKobo: number,
+  token: string | null,
+): Promise<RequestLoanResponse> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const res = await axios.post<{ success: true; data: RequestLoanResponse }>(
+      `${API_BASE_URL}/loans/request`,
+      { amount_kobo: amountKobo },
+      { headers, timeout: 12_000 },
+    );
+    return res.data.data;
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
+/**
+ * POST /loans/repay — partial or full repayment.
+ *
+ * Atomic with the wallet debit. Repaid status flips when the full
+ * principal is satisfied.
+ */
+export async function repayLoan(
+  loanId: string,
+  amountKobo: number,
+  token: string | null,
+): Promise<LoanRow> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const res = await axios.post<{ success: true; data: LoanRow }>(
+      `${API_BASE_URL}/loans/repay`,
+      { loan_id: loanId, amount_kobo: amountKobo },
+      { headers, timeout: 10_000 },
+    );
+    return res.data.data;
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
+/**
+ * GET /loans/me — token user's loan history, newest first.
+ */
+export async function getMyLoans(token: string | null): Promise<LoanRow[]> {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const res = await axios.get<{ success: true; data: { loans: LoanRow[] } }>(
+      `${API_BASE_URL}/loans/me`,
+      { headers, timeout: 8_000 },
+    );
+    return res.data.data.loans;
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
 // ----------------------------------------------------------------- helpers
 
 function _toBackendError(err: unknown): Error {
