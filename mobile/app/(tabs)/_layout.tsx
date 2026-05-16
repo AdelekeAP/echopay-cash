@@ -90,45 +90,45 @@ export default function TabLayout() {
           headerShown: false,
           tabBarStyle: {
             position: 'absolute',
-            bottom: 20,
-            left: 20,
-            right: 20,
+            bottom: 18,
+            left: 24,
+            right: 24,
             backgroundColor: Echopay.cardBg,
-            borderRadius: 25,
-            height: 70,
-            paddingTop: 10,
-            paddingBottom: Platform.OS === 'ios' ? 10 : 10,
+            borderRadius: 22,
+            height: 56,
+            paddingTop: 6,
+            paddingBottom: Platform.OS === 'ios' ? 6 : 6,
             borderTopWidth: 1,
             borderColor: Echopay.border,
           },
           tabBarLabelStyle: {
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: '600',
-            marginTop: 4,
+            marginTop: 2,
           },
           tabBarItemStyle: {
-            paddingVertical: 5,
+            paddingVertical: 2,
           },
         }}>
         <Tabs.Screen
           name="index"
           options={{
             title: 'Home',
-            tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => <Ionicons name="home" size={20} color={color} />,
           }}
         />
         <Tabs.Screen
           name="transactions"
           options={{
             title: 'History',
-            tabBarIcon: ({ color, size }) => <Ionicons name="receipt" size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => <Ionicons name="receipt" size={20} color={color} />,
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
             title: 'Profile',
-            tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => <Ionicons name="person" size={20} color={color} />,
           }}
         />
       </Tabs>
