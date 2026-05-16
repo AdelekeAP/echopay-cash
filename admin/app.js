@@ -45,21 +45,152 @@
     return `${h}h ago`;
   };
 
+  // ---- anomaly panel DOM refs -----------------------------------------------
+
+  const anomalyPanel = document.getElementById('anomaly-panel');
+  const anomalyTitle = document.getElementById('anomaly-title');
+  const anomalySummary = document.getElementById('anomaly-summary');
+  const anomalyList = document.getElementById('anomaly-list');
+
   // ---- main poll loop --------------------------------------------------------
 
   async function poll() {
-    try {
-      const res = await fetch(`${BACKEND}/admin/state`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = await res.json();
-      if (!body.success) throw new Error('non-success envelope');
-      renderState(body.data);
-      pollStatus.textContent = `last poll · ${new Date().toLocaleTimeString()}`;
-      pollStatus.style.color = 'var(--success)';
-    } catch (e) {
-      pollStatus.textContent = `poll error · ${e.message}`;
+    // Parallel fetch — /admin/state drives the persona grid + footer
+    // poll-status; /admin/anomalies drives the anomaly panel. An error
+    // on one must NOT break the other.
+    const [stateRes, anomaliesRes] = await Promise.allSettled([
+      fetch(`${BACKEND}/admin/state`, { cache: 'no-store' }),
+      fetch(`${BACKEND}/admin/anomalies`, { cache: 'no-store' }),
+    ]);
+
+    // /admin/state — existing logic
+    if (stateRes.status === 'fulfilled') {
+      try {
+        if (!stateRes.value.ok) throw new Error(`HTTP ${stateRes.value.status}`);
+        const body = await stateRes.value.json();
+        if (!body.success) throw new Error('non-success envelope');
+        renderState(body.data);
+        pollStatus.textContent = `last poll · ${new Date().toLocaleTimeString()}`;
+        pollStatus.style.color = 'var(--success)';
+      } catch (e) {
+        pollStatus.textContent = `poll error · ${e.message}`;
+        pollStatus.style.color = 'var(--danger)';
+      }
+    } else {
+      pollStatus.textContent = `poll error · ${stateRes.reason}`;
       pollStatus.style.color = 'var(--danger)';
     }
+
+    // /admin/anomalies — additive; failure shows muted "unavailable"
+    if (anomaliesRes.status === 'fulfilled') {
+      try {
+        if (!anomaliesRes.value.ok) throw new Error(`HTTP ${anomaliesRes.value.status}`);
+        const data = await anomaliesRes.value.json();
+        renderAnomalies(data);
+      } catch {
+        renderAnomalyError();
+      }
+    } else {
+      renderAnomalyError();
+    }
+  }
+
+  // ---- anomaly render --------------------------------------------------------
+
+  function renderAnomalies(data) {
+    anomalyPanel.style.display = '';
+    anomalyPanel.classList.remove('error');
+
+    const high = (data.alerts_by_severity && data.alerts_by_severity.high) || 0;
+    const medium = (data.alerts_by_severity && data.alerts_by_severity.medium) || 0;
+    const total = data.total_alerts || 0;
+
+    anomalyPanel.classList.remove('has-alerts', 'has-high', 'no-alerts');
+    if (total === 0) {
+      anomalyPanel.classList.add('no-alerts');
+      anomalyTitle.textContent = '✓ Anomaly Detection';
+      anomalySummary.textContent = '0 alerts';
+    } else {
+      if (high > 0) anomalyPanel.classList.add('has-high');
+      else anomalyPanel.classList.add('has-alerts');
+      anomalyTitle.textContent = '⚠ Anomaly Detection';
+      anomalySummary.textContent = high > 0
+        ? `${total} alert${total !== 1 ? 's' : ''} (${high} high)`
+        : `${total} alert${total !== 1 ? 's' : ''}`;
+    }
+
+    // Render list of real alerts (kind='anomaly'). Markers
+    // (insufficient_history, persona_not_found) suppressed — they're
+    // not actionable on the dashboard.
+    anomalyList.innerHTML = '';
+    const flatAlerts = [];
+    for (const personaUid of Object.keys(data.anomalies || {})) {
+      for (const alert of data.anomalies[personaUid] || []) {
+        if (alert.kind === 'anomaly') flatAlerts.push(alert);
+      }
+    }
+
+    if (flatAlerts.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'anomaly-empty';
+      empty.textContent = 'All transactions within normal patterns.';
+      anomalyList.appendChild(empty);
+      return;
+    }
+
+    // Sort: high severity first, then by most recent transaction
+    flatAlerts.sort((a, b) => {
+      if (a.severity !== b.severity) return a.severity === 'high' ? -1 : 1;
+      return (b.transaction_created_at || 0) - (a.transaction_created_at || 0);
+    });
+
+    for (const alert of flatAlerts) {
+      anomalyList.appendChild(renderAnomalyRow(alert));
+    }
+  }
+
+  function renderAnomalyRow(alert) {
+    const row = document.createElement('div');
+    row.className = `anomaly-row severity-${alert.severity}`;
+
+    const badge = document.createElement('span');
+    badge.className = 'severity-badge';
+    badge.textContent = alert.severity.toUpperCase();
+
+    const content = document.createElement('div');
+    content.className = 'anomaly-content';
+    const title = document.createElement('div');
+    title.className = 'anomaly-title';
+    title.textContent = `${alert.persona_display || alert.persona_uid} — ${fmtNaira(alert.amount_kobo)}`;
+    const reason = document.createElement('div');
+    reason.className = 'anomaly-reason';
+    reason.textContent = alert.reason;
+    content.appendChild(title);
+    content.appendChild(reason);
+
+    const time = document.createElement('span');
+    time.className = 'anomaly-time';
+    time.textContent = alert.transaction_created_at
+      ? fmtRelative(alert.transaction_created_at)
+      : '';
+
+    row.appendChild(badge);
+    row.appendChild(content);
+    row.appendChild(time);
+    return row;
+  }
+
+  function renderAnomalyError() {
+    anomalyPanel.style.display = '';
+    anomalyPanel.classList.remove('has-alerts', 'has-high', 'no-alerts');
+    anomalyPanel.classList.add('error');
+    anomalyTitle.textContent = 'Anomaly Detection';
+    anomalySummary.textContent = 'service unavailable';
+    anomalyList.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'anomaly-empty';
+    empty.textContent = 'Anomaly detection temporarily unavailable. Retrying…';
+    anomalyList.appendChild(empty);
   }
 
   function renderState(data) {
