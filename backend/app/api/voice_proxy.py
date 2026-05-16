@@ -286,6 +286,155 @@ def _log_call(
 
 
 # ----------------------------------------------------------------- endpoints
-#
-# Endpoints land in chunks 2 + 3. Skeleton router registered here so
-# main.py wiring in Chunk 1 doesn't break.
+
+
+@router.post("/enroll")
+async def enroll_voice(
+    sample_1: UploadFile = File(...),
+    sample_2: UploadFile = File(...),
+    sample_3: UploadFile = File(...),
+    sample_4: Optional[UploadFile] = File(None),
+    sample_5: Optional[UploadFile] = File(None),
+    account_number: str = Header(..., alias="account-number"),
+    company_id: Optional[str] = Header(None, alias="company-id"),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Enroll a user's voice. Proxies to :8000/api/v1/voice/biometrics/enroll.
+
+    Path C (demo mode): returns synthetic enrollment without calling :8000.
+    Path A (real): forwards 3-5 multipart samples + account-number header.
+    """
+    settings = get_settings()
+    _cross_check_account_match(authorization, account_number, db)
+
+    if settings.voice_biometric_demo_mode:
+        _log_call("enroll", account_number, demo_mode=True, upstream_ms=None, status_code=200)
+        return _synthetic_enroll_response(account_number)
+
+    # Path A: forward to :8000
+    samples = [
+        ("sample_1", sample_1),
+        ("sample_2", sample_2),
+        ("sample_3", sample_3),
+    ]
+    if sample_4 is not None:
+        samples.append(("sample_4", sample_4))
+    if sample_5 is not None:
+        samples.append(("sample_5", sample_5))
+
+    files = []
+    for field_name, upload in samples:
+        content = await upload.read()
+        files.append(
+            (field_name, (upload.filename or f"{field_name}.m4a", content, upload.content_type or "audio/m4a"))
+        )
+
+    headers = {"account-number": account_number}
+    if company_id is not None:
+        headers["company-id"] = company_id
+
+    started = time.monotonic()
+    resp = await _forward_to_upstream(
+        "POST", "/api/v1/voice/biometrics/enroll", headers=headers, files=files
+    )
+    elapsed_ms = (time.monotonic() - started) * 1000
+    _log_call("enroll", account_number, demo_mode=False, upstream_ms=elapsed_ms, status_code=resp.status_code)
+    return _map_upstream_response(resp)
+
+
+@router.post("/verify")
+async def verify_voice(
+    audio: UploadFile = File(...),
+    account_number: str = Header(..., alias="account-number"),
+    company_id: Optional[str] = Header(None, alias="company-id"),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Verify a live voice sample against stored profile. Proxies to
+    :8000/api/v1/voice/biometrics/verify.
+    """
+    settings = get_settings()
+    _cross_check_account_match(authorization, account_number, db)
+
+    if settings.voice_biometric_demo_mode:
+        _log_call("verify", account_number, demo_mode=True, upstream_ms=None, status_code=200)
+        return _synthetic_verify_response()
+
+    content = await audio.read()
+    files = [
+        (
+            "audio",
+            (audio.filename or "audio.m4a", content, audio.content_type or "audio/m4a"),
+        )
+    ]
+    headers = {"account-number": account_number}
+    if company_id is not None:
+        headers["company-id"] = company_id
+
+    started = time.monotonic()
+    resp = await _forward_to_upstream(
+        "POST", "/api/v1/voice/biometrics/verify", headers=headers, files=files
+    )
+    elapsed_ms = (time.monotonic() - started) * 1000
+    _log_call("verify", account_number, demo_mode=False, upstream_ms=elapsed_ms, status_code=resp.status_code)
+    return _map_upstream_response(resp)
+
+
+@router.get("/profile/{user_id}")
+async def get_voice_profile(
+    user_id: str,
+    company_id: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Get voice profile metadata (no embedding data). Proxies to
+    :8000/api/v1/voice/biometrics/profile/{user_id}.
+
+    Note: `user_id` URL param is the account_number string (10-digit
+    Squad VA) in legacy practice — not the integer User.id.
+    """
+    settings = get_settings()
+    # Treat the path param as the account_number for cross-check parity
+    # with enroll/verify (defense-in-depth only fires when Bearer present).
+    _cross_check_account_match(authorization, user_id, db)
+
+    if settings.voice_biometric_demo_mode:
+        _log_call("profile_get", user_id, demo_mode=True, upstream_ms=None, status_code=200)
+        return _synthetic_profile_response(user_id)
+
+    params = {"company_id": company_id} if company_id is not None else None
+    started = time.monotonic()
+    resp = await _forward_to_upstream(
+        "GET", f"/api/v1/voice/biometrics/profile/{user_id}", headers={}, params=params
+    )
+    elapsed_ms = (time.monotonic() - started) * 1000
+    _log_call("profile_get", user_id, demo_mode=False, upstream_ms=elapsed_ms, status_code=resp.status_code)
+    return _map_upstream_response(resp)
+
+
+@router.delete("/profile/{user_id}")
+async def delete_voice_profile(
+    user_id: str,
+    company_id: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Soft-delete a user's voice profile. Proxies to
+    :8000/api/v1/voice/biometrics/profile/{user_id}.
+    """
+    settings = get_settings()
+    _cross_check_account_match(authorization, user_id, db)
+
+    if settings.voice_biometric_demo_mode:
+        _log_call("profile_delete", user_id, demo_mode=True, upstream_ms=None, status_code=200)
+        return _synthetic_delete_response()
+
+    params = {"company_id": company_id} if company_id is not None else None
+    started = time.monotonic()
+    resp = await _forward_to_upstream(
+        "DELETE", f"/api/v1/voice/biometrics/profile/{user_id}", headers={}, params=params
+    )
+    elapsed_ms = (time.monotonic() - started) * 1000
+    _log_call("profile_delete", user_id, demo_mode=False, upstream_ms=elapsed_ms, status_code=resp.status_code)
+    return _map_upstream_response(resp)
