@@ -22,8 +22,14 @@ export default function TransactionsScreen() {
     try {
       const data = await transactionAPI.getTransactions();
       setTransactions(data);
-    } catch (error) {
-      console.error('Error loading transactions:', error);
+    } catch {
+      // transactionAPI.getTransactions() hits GET /transactions/ — a
+      // legacy demo-bank endpoint that doesn't exist on the
+      // echopay-cash backend (404). The home tab's useTransactions
+      // hook reads from the real backend via squad-api; this History
+      // tab falls back to an empty list. TODO(phase-1): migrate this
+      // screen to use the same squad-api source as the home tab.
+      setTransactions([]);
     } finally {
       setLoading(false);
     }
