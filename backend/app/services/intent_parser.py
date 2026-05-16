@@ -70,6 +70,11 @@ _MULTIPLIERS: dict[str, int] = {
     "hundred": 100,
     "thousand": 1_000,
     "million": 1_000_000,
+    # Pidgin K-suffix as a spoken word — "send five K" → 5000. The
+    # digit form ("5K") is normalized to "5000" earlier in
+    # _preprocess_transcript() before tokenization, so this only
+    # catches the word form.
+    "k": 1_000,
 }
 
 # ----------------------------------------------------------------- LLM prompt
@@ -89,6 +94,55 @@ _LLM_SYSTEM = (
     '- "what is my balance" → {"intent":"balance","recipientId":null,"amountNaira":null}\n'
     '- "hello" → {"intent":"unknown","recipientId":null,"amountNaira":null}'
 )
+
+
+# ----------------------------------------------------------------- preprocessing
+
+# Politeness markers that prefix Pidgin commands — strip from the start
+# so downstream regex matches the intent verb directly. Includes "biko"
+# (Igbo "please") since mixed-code is common in Nigerian markets.
+_POLITENESS_PREFIX_RE = re.compile(
+    r"^(abeg|please|biko|sir|madam|ma'am|ma)\s+",
+    re.IGNORECASE,
+)
+# Whisper occasionally inserts a period between adjacent words on
+# Pidgin transcripts ("I.dey", "make.i"). Restore the space.
+_PERIOD_INTRUSION_RE = re.compile(r"(\w)\.(\w)")
+# K-suffix on digit amounts: "5K", "10 k", "10K" → "5000", "10000".
+# Tested negative case: "iyaK" (no word-boundary at start) won't match.
+_K_SUFFIX_RE = re.compile(r"\b(\d+)\s*[kK]\b")
+
+
+def _preprocess_transcript(text: str) -> str:
+    """Normalize Whisper artifacts + strip Pidgin politeness markers.
+
+    Pure MECHANICAL fixes — no semantic rewriting. Downstream regex,
+    persona match, and LLM layers handle Pidgin grammar. We deliberately
+    do NOT rewrite "give" → "to" here because "Give Iya 5000 naira"
+    uses give as the main verb, not a preposition.
+
+    Order matters: smart-quote → period-intrusion → hyphen-artifact →
+    K-suffix → politeness-strip → whitespace-normalize.
+    """
+    s = text.lower()
+    # Smart quotes that Whisper sometimes emits.
+    s = s.replace("‘", "'").replace("’", "'")
+    s = s.replace("“", '"').replace("”", '"')
+    # Period intrusion between words.
+    s = _PERIOD_INTRUSION_RE.sub(r"\1 \2", s)
+    # Hyphen artifacts on common Pidgin markers.
+    s = re.sub(r"\bmake-i\b", "make i", s)
+    s = re.sub(r"\bno-mind\b", "no mind", s)
+    # K-suffix on digit amounts. Done BEFORE politeness strip so the
+    # regex word-boundary still works on a leading "abeg 5K ...".
+    s = _K_SUFFIX_RE.sub(r"\g<1>000", s)
+    # Strip leading politeness markers (one occurrence at start only —
+    # don't get aggressive, "abeg" inside the transcript may be load-
+    # bearing context for the LLM).
+    s = _POLITENESS_PREFIX_RE.sub("", s)
+    # Whitespace normalization last.
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 # ----------------------------------------------------------------- helpers
@@ -185,9 +239,18 @@ async def parse_intent(transcript: str) -> IntentResult:
 
     Returns an IntentResult with intent='unknown' when the transcript
     can't be classified. Callers should always check `.action`.
+
+    Pidgin support: the transcript goes through _preprocess_transcript
+    first to normalize Whisper artifacts (smart quotes, period
+    intrusions, K-suffix on amounts) and strip leading politeness
+    markers (abeg, please, biko, sir, ma). Pidgin grammar is handled
+    further down: in the regex extensions for balance/cancel/qr_generate,
+    in match_persona's tokenizer, and in the LLM few-shot examples.
     """
     if not transcript or not transcript.strip():
         return IntentResult(intent="unknown", action="unknown", entities={})
+
+    transcript = _preprocess_transcript(transcript)
 
     # 1. Balance fast-path
     if _BALANCE_RE.search(transcript):
