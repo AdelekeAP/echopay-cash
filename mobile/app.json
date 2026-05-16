@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.anonymous.EchoPayApp",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "EchoPay needs access to your microphone for voice banking commands",
-        "NSSpeechRecognitionUsageDescription": "EchoPay uses speech recognition to understand your voice banking commands"
+        "NSSpeechRecognitionUsageDescription": "EchoPay uses speech recognition to understand your voice banking commands",
+        "NSCameraUsageDescription": "EchoPay needs camera access to scan payment QR codes"
       }
     },
     "android": {
@@ -47,7 +48,13 @@
       ],
       "expo-web-browser",
       "expo-sqlite",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "EchoPay needs camera access to scan payment QR codes"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
