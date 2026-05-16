@@ -113,8 +113,15 @@ export default function TransferScreen() {
       if (bankList.length > 0) {
         setSelectedBank(bankList[0].code);
       }
-    } catch (error) {
-      console.error('Error loading banks:', error);
+    } catch {
+      // bankAPI.getBanks() hits GET /banks/ — a legacy demo-bank
+      // endpoint that doesn't exist on the echopay-cash backend
+      // (404). This entire screen is dormant in the demo path —
+      // the home Send pill routes to /local-transfer now, not here.
+      // Silenced to keep LogBox clean if user reaches this screen
+      // via back-nav glitch or deep-link. TODO(phase-1): retarget
+      // this screen to real Squad payout or remove entirely.
+      setBanks([]);
     }
   };
 
