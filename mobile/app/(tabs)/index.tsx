@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import {
   Alert,
   View,
@@ -15,15 +15,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { Echopay } from '../../constants/theme';
 import { LocalTransferPill } from '../../components/local-transfer/Pill';
-import IntentPicker, { Intent } from '../../components/voice/IntentPicker';
+import OfflineBadge from '../../components/status/OfflineBadge';
+import TransactionRow from '../../components/transactions/TransactionRow';
+import VoiceIntentModal from '../../components/voice/VoiceIntentModal';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { useTransactions } from '../../hooks/useTransactions';
 import { getOutboxPendingCount } from '../../services/cache';
-import {
-  TransactionDirection,
-  TransactionRow,
-  TransactionType,
-} from '../../types/transaction';
 import { formatKoboToNaira } from '../../utils/format';
 
 export default function HomeScreen() {
@@ -33,63 +30,43 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
   const [pending, setPending] = useState(0);
-  const [intentPickerVisible, setIntentPickerVisible] = useState(false);
+  const [voiceIntentVisible, setVoiceIntentVisible] = useState(false);
   const { transactions, refresh: refreshTransactions } = useTransactions(5);
 
-  // PRD_LEKE §3.14 — mock-dropdown intents while /voice/intent backend
-  // is in flight. Both transfer intents route to /local-transfer via
-  // Funbi's §12 deeplink prefill (recipientId + amountKobo). "Balance"
-  // intent stays on-screen and surfaces via Alert.
-  const intents: Intent[] = useMemo(
-    () => [
-      {
-        id: 'send_iya',
-        label: 'Send ₦5,000 to Iya Tope',
-        icon: 'paper-plane-outline',
-        action: 'transfer_local',
-        recipientId: 'iya_tope',
-        amountKobo: 500_000,
-      },
-      {
-        id: 'send_kosi',
-        label: 'Send ₦200 to Kosi',
-        icon: 'paper-plane-outline',
-        action: 'transfer_local',
-        recipientId: 'kosi',
-        amountKobo: 20_000,
-      },
-      {
-        id: 'balance',
-        label: "What's my balance?",
-        icon: 'wallet-outline',
-        action: 'balance',
-      },
-    ],
-    [],
-  );
-
-  const handleIntent = useCallback(
-    (intent: Intent) => {
-      setIntentPickerVisible(false);
-      if (
-        intent.action === 'transfer_local' &&
-        intent.recipientId &&
-        intent.amountKobo !== undefined
-      ) {
+  // PRD_LEKE §3.14 — real voice intent handler. VoiceIntentModal calls
+  // this with the parsed action + entities from POST /voice/intent.
+  // The IntentPicker fallback inside VoiceIntentModal also calls it.
+  const handleVoiceIntent = useCallback(
+    (
+      action: string,
+      entities: { recipientId?: string; amountKobo?: number; balance_kobo?: number },
+    ) => {
+      setVoiceIntentVisible(false);
+      if (action === 'transfer_local' && entities.recipientId) {
         router.push({
           pathname: '/local-transfer',
           params: {
-            recipientId: intent.recipientId,
-            amountKobo: String(intent.amountKobo),
+            recipientId: entities.recipientId,
+            amountKobo: String(entities.amountKobo ?? 0),
           },
         });
         return;
       }
-      if (intent.action === 'balance') {
-        const balanceKobo = Math.round(
-          parseFloat(account?.balance ?? '0') * 100,
-        );
-        Alert.alert('Available balance', formatKoboToNaira(balanceKobo), [
+      // PRD §1 Script A 2:00 — "Generate ₦200 QR for okra." Routes to
+      // /receive with the spoken amount pre-filled; receive.tsx reads
+      // amount_kobo from useLocalSearchParams and seeds the input.
+      if (action === 'qr_generate') {
+        router.push({
+          pathname: '/receive',
+          params: { amount_kobo: String(entities.amountKobo ?? '') },
+        });
+        return;
+      }
+      if (action === 'balance') {
+        const kobo =
+          entities.balance_kobo ??
+          Math.round(parseFloat(account?.balance ?? '0') * 100);
+        Alert.alert('Available balance', formatKoboToNaira(kobo), [
           { text: 'OK' },
         ]);
       }
@@ -131,53 +108,6 @@ export default function HomeScreen() {
       currency: 'NGN',
       minimumFractionDigits: 0,
     }).format(num);
-  };
-
-  // Relative time for ISO-8601 strings from TransactionRow.created_at.
-  const formatTxDate = (iso: string) => {
-    const date = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const minutes = Math.floor(diffMs / 60_000);
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return `${days} days ago`;
-    return date.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
-  };
-
-  // PRD_LEKE §3.13 — new TransactionRow shape from services/cache.ts
-  // uses (type, direction) instead of the old `transaction_type`.
-  const getTransactionIcon = (type: TransactionType, direction: TransactionDirection) => {
-    if (direction === 'in') {
-      if (type === 'qr_receive') {
-        return { name: 'qr-code', color: Echopay.success, bg: Echopay.successSoft };
-      }
-      if (type === 'topup') {
-        return { name: 'add-circle', color: Echopay.success, bg: Echopay.successSoft };
-      }
-      return { name: 'arrow-down', color: Echopay.success, bg: Echopay.successSoft };
-    }
-    // direction === 'out'
-    return { name: 'arrow-up', color: Echopay.danger, bg: Echopay.dangerSoft };
-  };
-
-  const getTransactionLabel = (type: TransactionType): string => {
-    switch (type) {
-      case 'in_network':
-        return 'EchoPay transfer';
-      case 'external_out':
-        return 'Bank transfer';
-      case 'qr_receive':
-        return 'QR receive';
-      case 'topup':
-        return 'Top-up';
-      default:
-        return type;
-    }
   };
 
   return (
@@ -253,45 +183,13 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Offline budget card — PRD_FUNBI §11 dual-balance.
-            When offline, this card becomes the visual primary (per
-            PRD_LEKE §3.15) — accent hairline + bolder value. */}
-        <Pressable
-          style={[
-            offlineBudgetStyles.card,
-            !isOnline && offlineBudgetStyles.cardActive,
-          ]}
+        {/* Offline-spendable budget — promotes to visual primary when
+            isOnline=false per PRD_LEKE §3.15. */}
+        <OfflineBadge
+          lockedBalance={account?.locked_balance ?? '0.00'}
+          isOnline={isOnline}
           onPress={() => router.push('/offline-wallet')}
-        >
-          <View style={offlineBudgetStyles.iconCircle}>
-            <Ionicons name="lock-closed-outline" size={18} color={Echopay.accent} />
-          </View>
-          <View style={offlineBudgetStyles.body}>
-            <Text
-              style={[
-                offlineBudgetStyles.label,
-                !isOnline && offlineBudgetStyles.labelActive,
-              ]}
-            >
-              Offline budget
-            </Text>
-            <Text style={offlineBudgetStyles.hint}>
-              {(account?.locked_balance ?? '0.00') === '0.00'
-                ? 'Set aside funds for offline use →'
-                : 'Manage your offline-spendable funds →'}
-            </Text>
-          </View>
-          <Text
-            style={[
-              offlineBudgetStyles.value,
-              !isOnline && offlineBudgetStyles.valueActive,
-            ]}
-          >
-            ₦{Number(account?.locked_balance ?? '0').toLocaleString('en-NG', {
-              minimumFractionDigits: 0,
-            })}
-          </Text>
-        </Pressable>
+        />
 
         {/* Quick actions — 4 distinct flows.
             Send    → external bank (off-network, real Squad payout)
@@ -331,7 +229,7 @@ export default function HomeScreen() {
             styles.voiceHintCard,
             pressed && styles.voiceHintCardPressed,
           ]}
-          onPress={() => setIntentPickerVisible(true)}
+          onPress={() => setVoiceIntentVisible(true)}
           hitSlop={4}
         >
           <View style={styles.voiceHintLeft}>
@@ -375,30 +273,9 @@ export default function HomeScreen() {
                 <Text style={styles.emptySubtitle}>Your activity will appear here</Text>
               </View>
             ) : (
-              transactions.map((txn: TransactionRow) => {
-                const isDebit = txn.direction === 'out';
-                const icon = getTransactionIcon(txn.type, txn.direction);
-                const label = getTransactionLabel(txn.type);
-                const counterparty = txn.counterparty || (isDebit ? 'Sent' : 'Received');
-                return (
-                  <Pressable key={txn.id} style={styles.transactionItem}>
-                    <View style={[styles.txnIconContainer, { backgroundColor: icon.bg }]}>
-                      <Ionicons name={icon.name as any} size={18} color={icon.color} />
-                    </View>
-                    <View style={styles.txnDetails}>
-                      <Text style={styles.txnTitle} numberOfLines={1}>
-                        {counterparty}
-                      </Text>
-                      <Text style={styles.txnSubtitle}>
-                        {label} • {formatTxDate(txn.created_at)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.txnAmount, isDebit && styles.txnAmountDebit]}>
-                      {isDebit ? '-' : '+'}{formatKoboToNaira(txn.amount_kobo)}
-                    </Text>
-                  </Pressable>
-                );
-              })
+              transactions.map((txn) => (
+                <TransactionRow key={txn.id} transaction={txn} />
+              ))
             )}
           </View>
         </View>
@@ -407,11 +284,10 @@ export default function HomeScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <IntentPicker
-        visible={intentPickerVisible}
-        intents={intents}
-        onClose={() => setIntentPickerVisible(false)}
-        onSelect={handleIntent}
+      <VoiceIntentModal
+        visible={voiceIntentVisible}
+        onClose={() => setVoiceIntentVisible(false)}
+        onIntent={handleVoiceIntent}
       />
     </SafeAreaView>
   );
@@ -686,42 +562,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: 'hidden',
   },
-  transactionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Echopay.border,
-  },
-  txnIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  txnDetails: {
-    flex: 1,
-    marginLeft: 14,
-  },
-  txnTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Echopay.text,
-  },
-  txnSubtitle: {
-    fontSize: 12,
-    color: Echopay.textSubtle,
-    marginTop: 3,
-  },
-  txnAmount: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Echopay.success,
-  },
-  txnAmountDebit: {
-    color: Echopay.danger,
-  },
   emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
@@ -747,36 +587,3 @@ const styles = StyleSheet.create({
   },
 });
 
-// PRD_FUNBI §11.5 — offline-budget card. Kept in its own StyleSheet so
-// Leke's home file isn't sprawling and rebases stay clean.
-const offlineBudgetStyles = StyleSheet.create({
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Echopay.cardBg,
-    borderWidth: 1,
-    borderColor: Echopay.border,
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    gap: 14,
-    marginBottom: 22,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Echopay.accentSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  body: { flex: 1 },
-  label: { fontSize: 13, color: Echopay.textMuted, fontWeight: '600' },
-  hint: { fontSize: 12, color: Echopay.textSubtle, marginTop: 2 },
-  value: { fontSize: 17, fontWeight: '700', color: Echopay.text },
-  // §3.15 — when offline, this card becomes the visual primary: accent
-  // hairline + bolder label + heavier value weight.
-  cardActive: { borderColor: Echopay.accent },
-  labelActive: { color: Echopay.text },
-  valueActive: { fontWeight: '800' },
-});

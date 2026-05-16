@@ -51,6 +51,8 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
         "app.api.sync",
         "app.api.permits",
         "app.api.offline_sync",
+        "app.api.voice_intent",
+        "app.services.intent_parser",
         "app.main",
         "app.models",
         "app.core.db",
@@ -111,6 +113,22 @@ def seed_wallets(client):
                 )
                 ids[fn.lower()] = u.id
     return ids
+
+
+@pytest.fixture
+def auth_header():
+    """Bearer-token header builder for endpoints that derive user_id
+    from the token (transfer/in-network, dva/create, voice/intent).
+
+    Usage in tests:
+        client.post(url, json=body, headers=auth_header(user_id))
+    """
+    import time
+
+    def _make(user_id: int) -> dict[str, str]:
+        return {"Authorization": f"Bearer demo_token_{user_id}_{int(time.time())}"}
+
+    return _make
 
 
 @pytest.fixture

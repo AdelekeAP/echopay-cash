@@ -168,6 +168,149 @@ export async function getAdminState(): Promise<never> {
   throw new Error('getAdminState: not implemented yet (admin dashboard PR)');
 }
 
+// ----------------------------------------------------------------- DVA resolve + pay
+
+export interface ResolveDvaResponse {
+  recipient_user_id: number;
+  recipient_display_name: string;
+  persona_id: string;
+}
+
+/**
+ * GET /dynamic-va/resolve — phone-book lookup for scan-to-pay.
+ *
+ * Mobile scans a bare 10-digit DVA number off a QR; the backend returns
+ * the recipient's display name + user_id + persona_id. NEVER returns
+ * sensitive fields (phone, email, bvn, balances) — see backend security
+ * test test_resolve_no_sensitive_leak.
+ */
+export async function resolveDVA(
+  vaNumber: string,
+  token: string | null,
+): Promise<ResolveDvaResponse> {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const res = await axios.get<{ success: true; data: ResolveDvaResponse }>(
+      `${API_BASE_URL}/dynamic-va/resolve`,
+      { headers, params: { va_number: vaNumber }, timeout: 8_000 },
+    );
+    return res.data.data;
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
+export interface PayByDvaResponse {
+  tx_id: string;
+  status: string;
+  settled_at: number;
+  balance_after_kobo: number;
+  recipient_display_name: string;
+}
+
+/**
+ * Resolve a scanned DVA then immediately pay it via /transfer/in-network.
+ *
+ * Composes resolveDVA + POST /transfer/in-network. The in-network
+ * endpoint enforces Bearer-token auth (token user MUST equal
+ * fromUserId else 403), which is THE Q&A defense against forged
+ * from_user_id claims.
+ *
+ * idempotencyKey: pass through from scan.tsx (generated once when
+ * entering the confirm stage via useMemo on [vaNumber, amountKobo]).
+ * Re-tapping Pay during a slow network won't double-charge.
+ */
+export async function payByDVA(
+  vaNumber: string,
+  amountKobo: number,
+  fromUserId: number,
+  token: string | null,
+  idempotencyKey: string,
+): Promise<PayByDvaResponse> {
+  const resolved = await resolveDVA(vaNumber, token);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const res = await axios.post<{
+      success: true;
+      data: {
+        tx_id: string;
+        status: string;
+        settled_at: number;
+        balance_after_kobo: number;
+      };
+    }>(
+      `${API_BASE_URL}/transfer/in-network`,
+      {
+        from_user_id: fromUserId,
+        to_user_id: resolved.recipient_user_id,
+        amount_kobo: amountKobo,
+        idempotency_key: idempotencyKey,
+      },
+      { headers, timeout: 10_000 },
+    );
+    return {
+      ...res.data.data,
+      recipient_display_name: resolved.recipient_display_name,
+    };
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
+// ----------------------------------------------------------------- voice intent
+
+export interface ParseIntentResult {
+  intent: string;
+  transcript: string;
+  action: 'transfer_local' | 'balance' | 'cancel' | 'unknown';
+  entities: {
+    recipientId?: string;
+    amountKobo?: number;
+    balance_kobo?: number;
+  };
+}
+
+/**
+ * POST /voice/intent — send recorded audio, get back a typed intent.
+ *
+ * Backend runs Whisper (or demo bypass) then fast-path regex + optional
+ * GPT-4o-mini. Always returns HTTP 200; action='unknown' means the
+ * backend couldn't classify. Caller should surface a "try again" path.
+ *
+ * Auth: same demo Bearer token as createDynamicVa. Backend uses it to
+ * attach live balance_kobo for balance-check responses.
+ */
+export async function parseIntent(
+  audioUri: string,
+  token: string | null,
+): Promise<ParseIntentResult> {
+  const form = new FormData();
+  // React Native FormData accepts {uri, name, type} as a file blob.
+  form.append('audio', { uri: audioUri, name: 'recording.m4a', type: 'audio/m4a' } as any);
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'multipart/form-data',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  try {
+    const res = await axios.post<{ success: true; data: ParseIntentResult }>(
+      `${API_BASE_URL}/voice/intent`,
+      form,
+      {
+        headers,
+        // Whisper + intent round-trip; allow generous upper bound.
+        timeout: 15_000,
+      },
+    );
+    return res.data.data;
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
 // ----------------------------------------------------------------- helpers
 
 function _toBackendError(err: unknown): Error {

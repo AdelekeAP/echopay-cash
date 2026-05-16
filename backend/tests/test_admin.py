@@ -432,13 +432,15 @@ def test_admin_reconcile_holds_after_in_network_transfer(client):
 
     # Use Funbi's real /transfer/in-network endpoint to make sure the
     # tx row + wallet mutation match the real demo flow.
+    import time as _t
     body = {
         "from_user_id": ids["mama_risikat"],
         "to_user_id": ids["iya_tope"],
         "amount_kobo": 5_000_00,  # ₦5,000
         "idempotency_key": "test_demo_1_15_beat",
     }
-    r = client.post("/transfer/in-network", json=body)
+    headers = {"Authorization": f"Bearer demo_token_{ids['mama_risikat']}_{int(_t.time())}"}
+    r = client.post("/transfer/in-network", json=body, headers=headers)
     assert r.status_code == 200, r.text
 
     # Now reconcile.

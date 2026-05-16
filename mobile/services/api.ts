@@ -7,7 +7,6 @@ import {
   Transaction,
   RecipientInfo,
   TransferResponse,
-  SavedRecipient
 } from '../types';
 import { API_BASE_URL } from '../constants/config';
 
@@ -82,11 +81,6 @@ export const accountAPI = {
     });
     return response.data;
   },
-
-  verifyPin: async (pin: string): Promise<{ valid: boolean }> => {
-    const response = await api.post('/account/verify-pin/', { pin });
-    return response.data;
-  },
 };
 
 // TODO(phase-1): rewire to echopay-cash backend on :8100 (not live yet — expect 404).
@@ -105,32 +99,6 @@ export const transactionAPI = {
   }): Promise<TransferResponse> => {
     const response = await api.post('/transactions/transfer/', data);
     return response.data;
-  },
-
-  deposit: async (amount: number): Promise<TransferResponse> => {
-    const response = await api.post('/transactions/deposit/', { amount });
-    return response.data;
-  },
-};
-
-// TODO(phase-1): rewire to echopay-cash backend on :8100 (not live yet — expect 404).
-export const recipientAPI = {
-  getSavedRecipients: async (): Promise<SavedRecipient[]> => {
-    const response = await api.get('/recipients/');
-    return response.data;
-  },
-
-  saveRecipient: async (accountNumber: string, bankCode: string, nickname?: string): Promise<SavedRecipient> => {
-    const response = await api.post('/recipients/', {
-      account_number: accountNumber,
-      bank_code: bankCode,
-      nickname,
-    });
-    return response.data;
-  },
-
-  deleteRecipient: async (id: number): Promise<void> => {
-    await api.delete(`/recipients/${id}/`);
   },
 };
 
