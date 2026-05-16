@@ -23,8 +23,8 @@ reconciliation dashboard were built specifically for this hackathon.
 | Path | What it is |
 |---|---|
 | `mobile/` | React Native (Expo SDK 54) client. Voice signup, transfer, receive-QR, wallet, offline-tolerant boot. |
-| `backend/` | FastAPI service on `:8100`. Squad integration, ledger, webhooks, reconciliation. _(scaffolded in a later phase)_ |
-| `admin/` | Static HTML reconciliation dashboard. 1s polling on `/admin/state`. _(scaffolded in a later phase)_ |
+| `backend/` | FastAPI service on `:8100`. Squad integration, ledger, webhooks, reconciliation, voice-intent proxy, voice-biometric proxy (Path A + Path C), loans, anomaly detection. |
+| `admin/` | Static HTML reconciliation dashboard. 2s polling on `/admin/state`. 4-persona grid + reconcile invariant + anomaly alerts panel. |
 | `spike/` | Throwaway Squad sandbox round-trip script. Deleted before demo. |
 | `docs/` | Architecture and design docs. Start with [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). |
 | `EchoPay_Cash_PRD.md` | Full implementation spec — data model, endpoints, screens, offline shell, decision tree. |
@@ -35,9 +35,18 @@ reconciliation dashboard were built specifically for this hackathon.
 git clone https://github.com/AdelekeAP/echopay-cash
 cd echopay-cash
 
-# Backend — see backend/README.md when scaffolded by other team member
-# (echopay-cash backend lives on :8100; the voice services on :8000 are
-#  an external HTTP dependency, not in this repo — see docs/ARCHITECTURE.md.)
+# Backend (FastAPI on :8100)
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# edit .env: set OPENAI_API_KEY, SQUAD_SECRET_KEY (or leave empty for synthetic mode)
+python -m seed         # populates 4 personas + Musa's gig history + Mama's anomaly seed
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8100
+# Voice services (Whisper + ECAPA-TDNN biometric) run on :8000 as an
+# external HTTP dependency — see docs/ARCHITECTURE.md. The proxy layer
+# in backend/app/api/voice_proxy.py has a Path C demo-mode bypass
+# (VOICE_BIOMETRIC_DEMO_MODE=true) for offline demo safety.
 
 # Mobile
 cd mobile
