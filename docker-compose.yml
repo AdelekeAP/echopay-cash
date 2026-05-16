@@ -30,6 +30,11 @@ services:
     environment:
       DATABASE_URL: "sqlite:////data/echopay.db"
       ECHOPAY_SERVER_KEY_PATH: "/data/server_ed25519.key"
+      # Demo-day insurance: bypass Whisper, return a canned transcript.
+      # NEVER set this in backend/.env — pydantic-settings leaks it into
+      # the test process and every voice-intent test gets the canned
+      # phrase as its transcript, breaking 19 assertions.
+      VOICE_DEMO_MODE: "true"
     ports:
       - "8100:8100"
     volumes:
