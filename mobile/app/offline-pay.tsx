@@ -27,6 +27,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 
 import { useAuth } from '../context/AuthContext';
 import { useWallet } from '../hooks/useWallet';
@@ -65,6 +66,8 @@ export default function OfflinePayScreen() {
   const [error, setError] = useState<string | null>(null);
   const [bundle, setBundle] = useState<OfflineBundle | null>(null);
   const [copied, setCopied] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
 
   const amountKobo = useMemo(() => {
     try {
@@ -97,9 +100,9 @@ export default function OfflinePayScreen() {
     setStage('enter-amount');
   };
 
-  const onScanReceiver = () => {
+  const tryResolveReceive = (raw: string) => {
     setScanError(null);
-    const rb = decodeReceive(pastedReceive.trim());
+    const rb = decodeReceive(raw.trim());
     if (!rb) {
       setScanError('Could not read that receive bundle.');
       return;
@@ -119,6 +122,8 @@ export default function OfflinePayScreen() {
     }
     acceptReceiver(p);
   };
+
+  const onScanReceiver = () => tryResolveReceive(pastedReceive);
 
   const onBuildBundle = async () => {
     if (!user || !me || !recipient) return;
@@ -293,6 +298,39 @@ export default function OfflinePayScreen() {
     );
   }
 
+  // -------------------- camera overlay
+
+  if (cameraOpen) {
+    return (
+      <View style={styles.cameraWrap}>
+        <CameraView
+          style={StyleSheet.absoluteFillObject}
+          facing="back"
+          onBarcodeScanned={(result) => {
+            if (!result?.data) return;
+            setCameraOpen(false);
+            setPastedReceive(result.data);
+            tryResolveReceive(result.data);
+          }}
+          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+        />
+        <View style={styles.cameraOverlay} pointerEvents="none">
+          <View style={styles.cameraFrame} />
+          <Text style={styles.cameraHint}>
+            Align the receiver's QR inside the frame
+          </Text>
+        </View>
+        <Pressable
+          onPress={() => setCameraOpen(false)}
+          style={styles.cameraCancel}
+          hitSlop={12}
+        >
+          <Text style={styles.cameraCancelText}>Cancel</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   // -------------------- main shell
 
   return (
@@ -330,12 +368,32 @@ export default function OfflinePayScreen() {
 
         {stage === 'scan-receiver' && (
           <>
+            {Platform.OS !== 'web' && (
+              <Pressable
+                onPress={async () => {
+                  if (!permission?.granted) {
+                    const r = await requestPermission();
+                    if (!r.granted) return;
+                  }
+                  setCameraOpen(true);
+                  setScanError(null);
+                }}
+                style={({ pressed }) => [
+                  styles.cameraOpenButton,
+                  pressed && styles.cameraOpenButtonPressed,
+                ]}
+              >
+                <Ionicons name="qr-code-outline" size={18} color="#fff" />
+                <Text style={styles.cameraOpenButtonText}>
+                  Scan their QR
+                </Text>
+              </Pressable>
+            )}
+
             <View style={styles.scanCard}>
               <Text style={styles.scanLabel}>
                 Paste receive bundle{' '}
-                <Text style={styles.scanLabelMuted}>
-                  (or scan their QR)
-                </Text>
+                <Text style={styles.scanLabelMuted}>(fallback)</Text>
               </Text>
               <TextInput
                 style={styles.scanInput}
@@ -770,6 +828,51 @@ const styles = StyleSheet.create({
   },
 
   // primary CTA
+  // camera flow
+  cameraOpenButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Echopay.accent,
+    paddingVertical: 16,
+    borderRadius: 14,
+    marginBottom: 12,
+  },
+  cameraOpenButtonPressed: { backgroundColor: Echopay.accentPressed },
+  cameraOpenButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  cameraWrap: { flex: 1, backgroundColor: '#000' },
+  cameraOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraFrame: {
+    width: 260,
+    height: 260,
+    borderRadius: 18,
+    borderWidth: 3,
+    borderColor: Echopay.accent,
+  },
+  cameraHint: {
+    marginTop: 16,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    textShadowColor: '#000',
+    textShadowRadius: 4,
+  },
+  cameraCancel: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  cameraCancelText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+
   primaryButton: {
     backgroundColor: Echopay.accent,
     paddingVertical: 16,
