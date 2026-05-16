@@ -36,6 +36,7 @@ from .api.admin import router as admin_router
 from .api.voice_intent import router as voice_intent_router
 from .api.loans import router as loans_router
 from .api.voice_proxy import router as voice_proxy_router
+from .api.anomalies import router as anomalies_router
 from .core.crypto import get_server_pubkey_b64
 
 settings = get_settings()
@@ -80,6 +81,7 @@ app.include_router(admin_router)
 app.include_router(voice_intent_router)
 app.include_router(loans_router)
 app.include_router(voice_proxy_router)
+app.include_router(anomalies_router)
 
 
 @app.get("/crypto/server-pubkey", tags=["meta"])
