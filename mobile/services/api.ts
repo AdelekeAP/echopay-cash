@@ -59,15 +59,13 @@ export const authAPI = {
   },
 };
 
-// TODO(phase-1): rewire to echopay-cash backend on :8100 (not live yet — expect 404).
 export const bankAPI = {
   getBanks: async (): Promise<Bank[]> => {
-    const response = await api.get('/banks/');
+    const response = await api.get('/banks');
     return response.data;
   },
 };
 
-// TODO(phase-1): rewire to echopay-cash backend on :8100 (not live yet — expect 404).
 export const accountAPI = {
   getAccount: async (): Promise<Account> => {
     const response = await api.get('/account/');
@@ -75,7 +73,7 @@ export const accountAPI = {
   },
 
   lookupAccount: async (accountNumber: string, bankCode: string): Promise<{ found: boolean; recipient: RecipientInfo }> => {
-    const response = await api.post('/account/lookup/', {
+    const response = await api.post('/account/lookup', {
       account_number: accountNumber,
       bank_code: bankCode,
     });
@@ -83,7 +81,6 @@ export const accountAPI = {
   },
 };
 
-// TODO(phase-1): rewire to echopay-cash backend on :8100 (not live yet — expect 404).
 export const transactionAPI = {
   getTransactions: async (): Promise<Transaction[]> => {
     const response = await api.get('/transactions/');
