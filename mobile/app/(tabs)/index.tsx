@@ -209,6 +209,28 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
+        {/* Working capital — PR §1 demo beat 3:45. Always-visible CTA;
+            the loans screen handles the active-vs-no-active logic
+            internally so this stays simple. */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.loansCard,
+            pressed && styles.loansCardPressed,
+          ]}
+          onPress={() => router.push('/loans')}
+        >
+          <View style={styles.loansIconCircle}>
+            <Ionicons name="cash-outline" size={20} color={Echopay.accent} />
+          </View>
+          <View style={styles.loansBody}>
+            <Text style={styles.loansTitle}>Working capital</Text>
+            <Text style={styles.loansSubtitle}>
+              Instant credit against your transaction history
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={Echopay.textSubtle} />
+        </Pressable>
+
         {/* Voice-banking hint — taps open the IntentPicker (PRD_LEKE §3.14
             mock-dropdown). Real /voice/intent wiring is a follow-up PR. */}
         <Pressable
@@ -466,6 +488,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: Echopay.text,
+  },
+
+  // Working-capital loans CTA
+  loansCard: {
+    marginTop: 18,
+    backgroundColor: Echopay.cardBg,
+    borderWidth: 1,
+    borderColor: Echopay.border,
+    borderRadius: 14,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loansCardPressed: {
+    backgroundColor: Echopay.cardSoft,
+  },
+  loansIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Echopay.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loansBody: { flex: 1 },
+  loansTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Echopay.text,
+  },
+  loansSubtitle: {
+    fontSize: 12,
+    color: Echopay.textSubtle,
+    marginTop: 2,
   },
 
   // Voice-banking hint
