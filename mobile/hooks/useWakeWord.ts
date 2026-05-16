@@ -54,6 +54,9 @@ export function useWakeWord({
   const appState = useRef(AppState.currentState);
   const isProcessingWakeWord = useRef(false);
   const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Set to true once we observe that the native bridge is broken (Expo
+  // Go runtime). Prevents the retry loop in startListeningInternal.
+  const bridgeDeadRef = useRef(false);
 
   // Check if Voice is available
   useEffect(() => {
@@ -129,15 +132,25 @@ export function useWakeWord({
 
   // Internal start listening function
   const startListeningInternal = useCallback(async () => {
-    if (!Voice || !enabled) return;
+    if (!Voice || !enabled || bridgeDeadRef.current) return;
 
     try {
       await Voice.start('en-US');
       setIsListening(true);
       setError(null);
     } catch (err: any) {
+      // Expo Go ships a stub for @react-native-voice/voice — the JS
+      // object exists but the native bridge is null, so .start() throws
+      // "Cannot read property 'startSpeech' of null". Detect that and
+      // permanently disable the hook so we don't loop the retry forever.
+      const msg = String(err?.message ?? err);
+      if (msg.includes('startSpeech') || msg.includes('null')) {
+        bridgeDeadRef.current = true;
+        setError(null);
+        return;
+      }
       console.error('[WakeWord] Start error:', err);
-      // Retry after delay
+      // Retry after delay on real, recoverable errors only.
       restartTimeoutRef.current = setTimeout(() => {
         startListeningInternal();
       }, 2000);

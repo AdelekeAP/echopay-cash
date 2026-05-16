@@ -1,0 +1,46 @@
+# EchoPay Cash — one-command spin-up.
+#
+#   docker compose up -d --build       # build + start in background
+#   docker compose logs -f backend     # tail logs
+#   docker compose down                # stop
+#   docker compose down -v             # stop + wipe the data volume
+#
+# Before first run:
+#   cp backend/.env.example backend/.env
+#   # then fill in SQUAD_SECRET_KEY, SQUAD_PUBLIC_KEY, SQUAD_MERCHANT_ID
+#
+# Persistent state lives in the `echopay-data` named volume:
+#   - SQLite ledger
+#   - ed25519 server signing key (auto-generated on first boot)
+# Wiping that volume revokes every outstanding permit and starts the
+# ledger from zero — only do it on purpose.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: echopay-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    # These take precedence over .env — pin the paths to the persistent
+    # volume so a stale DATABASE_URL in .env (e.g. ./echopay.db relative
+    # to a dev workspace) can't redirect writes into the read-only image.
+    environment:
+      DATABASE_URL: "sqlite:////data/echopay.db"
+      ECHOPAY_SERVER_KEY_PATH: "/data/server_ed25519.key"
+    ports:
+      - "8100:8100"
+    volumes:
+      - echopay-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  echopay-data:
+    driver: local

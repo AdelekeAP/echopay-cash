@@ -49,6 +49,8 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
         "app.api.transfer",
         "app.api.wallet",
         "app.api.sync",
+        "app.api.permits",
+        "app.api.offline_sync",
         "app.api.voice_intent",
         "app.api.voice_proxy",
         "app.api.anomalies",
@@ -61,6 +63,7 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
         "app.models",
         "app.core.db",
         "app.core.config",
+        "app.core.crypto",
         "seed",
     ]:
         sys.modules.pop(mod, None)

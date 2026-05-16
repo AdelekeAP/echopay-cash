@@ -90,13 +90,14 @@ export function useLocalTransfer(
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<LocalTransferResult | null>(null);
 
-  // PRD_FUNBI §12 prefill — fire once on mount if route params are
-  // present and resolve cleanly. recipientId resolves to a Persona;
-  // amountKobo is parsed as a positive integer ≤ active pot.
+  // PRD_FUNBI §12 prefill — fire once when the user becomes available
+  // (AuthContext hydrates from AsyncStorage asynchronously on cold
+  // start, so user is null on the first render). Only mark the ref
+  // as "applied" once we've actually attempted to apply the params,
+  // not on the early bail when user is still loading.
   const prefilledRef = useRef(false);
   useEffect(() => {
     if (prefilledRef.current) return;
-    prefilledRef.current = true;
     if (!user) return;
 
     const prefilledRecipient = opts.prefilledRecipientId
@@ -125,6 +126,8 @@ export function useLocalTransfer(
       // with their query pre-filled so they understand what failed.
       setQuery(opts.prefilledRecipientId);
     }
+
+    prefilledRef.current = true;
   }, [opts.prefilledRecipientId, opts.prefilledAmountKobo, user]);
 
   // -------- derived -----------------------------------------------------

@@ -191,7 +191,12 @@ export default function HomeScreen() {
           onPress={() => router.push('/offline-wallet')}
         />
 
-        {/* Quick actions — Send + SLOT (Funbi's pill) + Receive */}
+        {/* Quick actions — 4 distinct flows.
+            Send    → external bank (off-network, real Squad payout)
+            Local   → in-network instant (both online, ledger ⇄ move)
+            Offline → in-network signed (ed25519 permit + QR, master doc §4.2);
+                      works regardless of connectivity so it's testable on demo day
+            Receive → DVA QR to take money in */}
         <View style={styles.quickActionsContainer}>
           <Pressable style={styles.actionPill} onPress={() => router.push('/transfer')}>
             <View style={styles.actionPillIcon}>
@@ -199,7 +204,15 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.actionPillLabel}>Send</Text>
           </Pressable>
+
           <LocalTransferPill onPress={() => router.push('/local-transfer')} />
+
+          <Pressable style={styles.actionPill} onPress={() => router.push('/offline-pay')}>
+            <View style={styles.actionPillIcon}>
+              <Ionicons name="wallet-outline" size={22} color={Echopay.accent} />
+            </View>
+            <Text style={styles.actionPillLabel}>Offline</Text>
+          </Pressable>
 
           <Pressable style={styles.actionPill} onPress={() => router.push('/receive')}>
             <View style={styles.actionPillIcon}>

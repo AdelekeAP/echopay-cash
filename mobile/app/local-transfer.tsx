@@ -41,34 +41,37 @@ export default function LocalTransferScreen() {
     prefilledAmountKobo: Number.isFinite(parsedAmount) ? parsedAmount : undefined,
   });
 
-  // -------------------------------------------------- success screen
+  // -------------------------------------------------- success
 
   if (lt.stage === 'success' && lt.result) {
     return (
-      <View style={styles.successScreen}>
-        <View style={styles.successInner}>
-          <View style={styles.successCheck}>
-            <Text style={styles.successCheckMark}>✓</Text>
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.successContent}>
+          <View style={styles.tick}>
+            <Ionicons name="checkmark" size={28} color={Echopay.accent} />
           </View>
-          <Text style={styles.successHeadline}>
+
+          <Text style={styles.successAmount}>
             Sent {formatKoboToNaira(lt.amountKobo)}
           </Text>
-          <Text style={styles.successSub}>to {lt.result.recipientName}</Text>
+          <Text style={styles.successTo}>to {lt.result.recipientName}</Text>
 
-          <View style={styles.successCard}>
-            <View style={styles.successRow}>
-              <Text style={styles.successLabel}>Settled in</Text>
-              <Text style={styles.successValue}>{lt.result.durationMs} ms</Text>
+          <View style={styles.detailList}>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Settled in</Text>
+              <Text style={styles.detailValue}>{lt.result.durationMs} ms</Text>
             </View>
-            <View style={styles.successRow}>
-              <Text style={styles.successLabel}>Reference</Text>
-              <Text style={styles.successValueMono}>{lt.result.txId}</Text>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Reference</Text>
+              <Text style={styles.detailMono}>{lt.result.txId}</Text>
             </View>
-            <View style={styles.successRow}>
-              <Text style={styles.successLabel}>
-                {lt.result.debitedFrom === 'locked' ? 'Offline budget left' : 'New balance'}
+            <View style={[styles.detailRow, styles.detailRowLast]}>
+              <Text style={styles.detailLabel}>
+                {lt.result.debitedFrom === 'locked'
+                  ? 'Offline budget left'
+                  : 'New balance'}
               </Text>
-              <Text style={styles.successValue}>
+              <Text style={styles.detailValue}>
                 {formatKoboToNaira(lt.result.balanceAfterKobo)}
               </Text>
             </View>
@@ -84,10 +87,10 @@ export default function LocalTransferScreen() {
             <Text style={styles.primaryButtonText}>Done</Text>
           </Pressable>
 
-          <Pressable onPress={lt.reset} style={styles.linkRow} hitSlop={8}>
-            <Text style={styles.linkText}>Send another →</Text>
+          <Pressable onPress={lt.reset} style={styles.linkButton} hitSlop={8}>
+            <Text style={styles.linkText}>Send another</Text>
           </Pressable>
-        </View>
+        </ScrollView>
       </View>
     );
   }
@@ -100,36 +103,41 @@ export default function LocalTransferScreen() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => (lt.stage === 'pick-recipient' ? router.back() : lt.back())}
-            hitSlop={12}
-            style={styles.backRow}
-          >
-            <Text style={styles.backText}>← Back</Text>
-          </Pressable>
-          <Text style={styles.eyebrow}>LOCAL TRANSFER</Text>
-          <Text style={styles.title}>
-            {lt.stage === 'pick-recipient' && 'Who are you paying?'}
-            {lt.stage === 'enter-amount' && 'How much?'}
-            {lt.stage === 'confirm-pin' && 'Confirm with your PIN'}
+        <Pressable
+          onPress={() => {
+            if (lt.stage !== 'pick-recipient') {
+              lt.back();
+              return;
+            }
+            if (router.canGoBack()) router.back();
+            else router.replace('/(tabs)');
+          }}
+          hitSlop={12}
+          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}
+        >
+          <Ionicons name="chevron-back" size={22} color={Echopay.text} />
+        </Pressable>
+
+        <Text style={styles.title}>
+          {lt.stage === 'pick-recipient' && 'Send'}
+          {lt.stage === 'enter-amount' && 'How much?'}
+          {lt.stage === 'confirm-pin' && 'Confirm'}
+        </Text>
+
+        {lt.stage === 'pick-recipient' && (
+          <Text style={styles.subtitle}>
+            Instant. No fees. Between EchoPay Cash users.
           </Text>
-          {lt.stage === 'pick-recipient' && (
-            <Text style={styles.subtitle}>
-              Send instantly to another EchoPay Cash user. No fees.
-            </Text>
-          )}
-        </View>
+        )}
 
         {/* Stage: pick-recipient */}
         {lt.stage === 'pick-recipient' && (
           <>
-            <View style={styles.searchWrap}>
+            <View style={styles.searchRow}>
               <Ionicons
-                name="search-outline"
+                name="search"
                 size={18}
                 color={Echopay.textSubtle}
-                style={styles.searchIcon}
               />
               <TextInput
                 style={styles.searchInput}
@@ -144,36 +152,32 @@ export default function LocalTransferScreen() {
 
             <Text style={styles.sectionLabel}>Suggested</Text>
 
-            <View style={styles.recipientList}>
+            <View>
               {lt.recipients.length === 0 ? (
-                <View style={styles.emptyState}>
+                <View style={styles.empty}>
                   <Text style={styles.emptyTitle}>No matches</Text>
                   <Text style={styles.emptySub}>
                     Try a different name or username.
                   </Text>
                 </View>
               ) : (
-                lt.recipients.map((p) => (
+                lt.recipients.map((p, i) => (
                   <Pressable
                     key={p.id}
                     onPress={() => lt.selectRecipient(p)}
                     style={({ pressed }) => [
-                      styles.recipientCard,
-                      pressed && styles.recipientCardPressed,
+                      styles.row,
+                      i !== lt.recipients.length - 1 && styles.rowDivider,
+                      pressed && styles.rowPressed,
                     ]}
                   >
                     <View style={styles.avatar}>
                       <Text style={styles.avatarText}>{p.initials}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.recipientName}>{p.display_name}</Text>
-                      <Text style={styles.recipientMeta}>{p.role}</Text>
+                      <Text style={styles.rowName}>{p.display_name}</Text>
+                      <Text style={styles.rowMeta}>{p.role}</Text>
                     </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color={Echopay.textSubtle}
-                    />
                   </Pressable>
                 ))
               )}
@@ -184,19 +188,22 @@ export default function LocalTransferScreen() {
         {/* Stage: enter-amount */}
         {lt.stage === 'enter-amount' && lt.recipient && (
           <>
-            <View style={styles.toCard}>
+            <View style={styles.toLine}>
               <View style={styles.avatarSmall}>
-                <Text style={styles.avatarText}>{lt.recipient.initials}</Text>
+                <Text style={styles.avatarTextSmall}>
+                  {lt.recipient.initials}
+                </Text>
               </View>
-              <View>
-                <Text style={styles.toLabel}>To</Text>
-                <Text style={styles.toName}>{lt.recipient.display_name}</Text>
-                <Text style={styles.toMeta}>{lt.recipient.role}</Text>
-              </View>
+              <Text style={styles.toText}>
+                To{' '}
+                <Text style={styles.toName}>
+                  {lt.recipient.display_name}
+                </Text>
+              </Text>
             </View>
 
-            <View style={styles.amountWrap}>
-              <Text style={styles.nairaSymbol}>₦</Text>
+            <View style={styles.amountRow}>
+              <Text style={styles.naira}>₦</Text>
               <TextInput
                 style={styles.amountInput}
                 value={lt.amountStr}
@@ -210,13 +217,17 @@ export default function LocalTransferScreen() {
 
             <Text style={styles.balanceHint}>
               From your {lt.activeBalanceLabel}{' '}
-              <Text style={styles.balanceHintBold}>{lt.activeBalanceNaira}</Text>
+              <Text style={styles.balanceHintBold}>
+                {lt.activeBalanceNaira}
+              </Text>
             </Text>
 
-            <View style={styles.instantBadge}>
-              <Ionicons name="flash" size={14} color={Echopay.accent} />
-              <Text style={styles.instantBadgeText}>
-                {lt.isOnline ? 'Instant · No fees' : 'Offline · Will sync when connected'}
+            <View style={styles.instant}>
+              <Ionicons name="flash" size={13} color={Echopay.accent} />
+              <Text style={styles.instantText}>
+                {lt.isOnline
+                  ? 'Instant · No fees'
+                  : 'Offline · Will sync when connected'}
               </Text>
             </View>
 
@@ -249,13 +260,11 @@ export default function LocalTransferScreen() {
               <Text style={styles.readbackAmount}>
                 {formatKoboToNaira(lt.amountKobo)}
               </Text>
-              <Text style={styles.readbackTo}>to {lt.recipient.display_name}</Text>
-              <Text style={styles.readbackMeta}>
-                EchoPay Cash · Instant · No fees
+              <Text style={styles.readbackTo}>
+                to {lt.recipient.display_name}
               </Text>
             </View>
 
-            <Text style={styles.fieldLabel}>Your PIN</Text>
             <TextInput
               style={styles.pinInput}
               value={lt.pin}
@@ -276,7 +285,10 @@ export default function LocalTransferScreen() {
               style={({ pressed }) => [
                 styles.primaryButton,
                 (lt.loading || lt.pin.length < 4) && styles.primaryButtonDisabled,
-                pressed && !lt.loading && lt.pin.length === 4 && styles.primaryButtonPressed,
+                pressed &&
+                  !lt.loading &&
+                  lt.pin.length === 4 &&
+                  styles.primaryButtonPressed,
               ]}
             >
               {lt.loading ? (
@@ -289,7 +301,7 @@ export default function LocalTransferScreen() {
             </Pressable>
 
             <Text style={styles.hintText}>
-              Demo PIN: <Text style={styles.hintBold}>1234</Text>
+              Demo PIN <Text style={styles.hintBold}>1234</Text>
             </Text>
           </>
         )}
@@ -302,223 +314,206 @@ export default function LocalTransferScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Echopay.pageBg },
-  scrollContent: { flexGrow: 1, padding: 24, paddingBottom: 60 },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 60,
+  },
 
-  header: { marginBottom: 22 },
-  backRow: { marginTop: 8, marginBottom: 12 },
-  backText: { fontSize: 15, color: Echopay.accent, fontWeight: '500' },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    color: Echopay.accent,
-    marginBottom: 8,
+  // header
+  back: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -10,
+    marginBottom: 24,
+  },
+  backPressed: {
+    backgroundColor: Echopay.cardSoft,
   },
   title: {
-    fontSize: 26,
+    fontSize: 32,
     fontWeight: '700',
     color: Echopay.text,
-    letterSpacing: -0.4,
+    letterSpacing: -0.8,
   },
   subtitle: {
     fontSize: 14,
     color: Echopay.textMuted,
-    marginTop: 6,
+    marginTop: 8,
     lineHeight: 20,
   },
 
   // search
-  searchWrap: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Echopay.cardBg,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Echopay.border,
-    paddingHorizontal: 14,
-    marginBottom: 18,
+    gap: 10,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Echopay.border,
+    marginTop: 32,
+    marginBottom: 24,
   },
-  searchIcon: { marginRight: 8 },
   searchInput: {
     flex: 1,
-    paddingVertical: 14,
     fontSize: 15,
     color: Echopay.text,
+    padding: 0,
   },
 
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: Echopay.textMuted,
-    marginBottom: 10,
+    fontSize: 12,
+    color: Echopay.textSubtle,
+    fontWeight: '500',
+    marginBottom: 4,
   },
 
-  // recipient list
-  recipientList: { gap: 10 },
-  recipientCard: {
+  // recipient list — flat rows w/ hairline dividers
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: Echopay.cardBg,
-    borderWidth: 1,
-    borderColor: Echopay.border,
     gap: 14,
+    paddingVertical: 16,
   },
-  recipientCardPressed: {
-    backgroundColor: Echopay.cardSoft,
-    transform: [{ scale: 0.99 }],
+  rowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: Echopay.border,
   },
+  rowPressed: { opacity: 0.55 },
+  rowName: {
+    fontSize: 16,
+    color: Echopay.text,
+    fontWeight: '500',
+  },
+  rowMeta: {
+    fontSize: 13,
+    color: Echopay.textMuted,
+    marginTop: 2,
+  },
+
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Echopay.cardSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Echopay.border,
-  },
-  avatarSmall: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: Echopay.cardSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Echopay.border,
   },
   avatarText: {
     color: Echopay.text,
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0.4,
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
-  recipientName: { fontSize: 15, fontWeight: '600', color: Echopay.text },
-  recipientMeta: { fontSize: 12, color: Echopay.textMuted, marginTop: 2 },
-
-  emptyState: { padding: 24, alignItems: 'center' },
-  emptyTitle: { fontSize: 14, fontWeight: '600', color: Echopay.text },
-  emptySub: { fontSize: 13, color: Echopay.textMuted, marginTop: 4 },
-
-  // enter-amount
-  toCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
+  avatarSmall: {
+    width: 28,
+    height: 28,
     borderRadius: 14,
     backgroundColor: Echopay.cardSoft,
-    gap: 12,
-    marginBottom: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  toLabel: {
+  avatarTextSmall: {
+    color: Echopay.text,
     fontSize: 11,
-    color: Echopay.textSubtle,
     fontWeight: '600',
-    letterSpacing: 0.6,
   },
-  toName: { fontSize: 16, color: Echopay.text, fontWeight: '700' },
-  toMeta: { fontSize: 12, color: Echopay.textMuted, marginTop: 1 },
 
-  amountWrap: {
+  empty: { paddingVertical: 32, alignItems: 'center' },
+  emptyTitle: { fontSize: 14, fontWeight: '500', color: Echopay.text },
+  emptySub: { fontSize: 13, color: Echopay.textMuted, marginTop: 4 },
+
+  // enter amount
+  toLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Echopay.cardBg,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Echopay.border,
-    paddingHorizontal: 18,
-    marginBottom: 12,
+    gap: 10,
+    marginTop: 32,
+    marginBottom: 40,
+    alignSelf: 'flex-start',
   },
-  nairaSymbol: {
-    fontSize: 38,
+  toText: { fontSize: 15, color: Echopay.textMuted },
+  toName: { color: Echopay.text, fontWeight: '600' },
+
+  amountRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  naira: {
+    fontSize: 30,
     color: Echopay.textMuted,
     fontWeight: '300',
-    marginRight: 6,
+    marginRight: 4,
   },
   amountInput: {
-    flex: 1,
-    fontSize: 38,
-    paddingVertical: 18,
+    fontSize: 56,
     color: Echopay.text,
-    fontWeight: '600',
+    fontWeight: '300',
+    letterSpacing: -1.5,
+    padding: 0,
+    minWidth: 80,
   },
+
   balanceHint: {
     fontSize: 13,
     color: Echopay.textMuted,
+    textAlign: 'center',
     marginBottom: 14,
   },
   balanceHintBold: { color: Echopay.text, fontWeight: '600' },
-  instantBadge: {
+
+  instant: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: Echopay.accentSoft,
-    gap: 4,
-    marginBottom: 24,
+    alignSelf: 'center',
+    gap: 5,
+    marginBottom: 36,
   },
-  instantBadgeText: {
-    color: Echopay.accent,
+  instantText: {
     fontSize: 12,
-    fontWeight: '600',
+    color: Echopay.textMuted,
+    fontWeight: '500',
   },
 
-  // confirm-pin
+  // confirm pin
   readback: {
-    padding: 18,
-    borderRadius: 18,
-    backgroundColor: Echopay.cardBg,
-    borderWidth: 1,
-    borderColor: Echopay.border,
-    marginBottom: 26,
     alignItems: 'center',
+    marginTop: 36,
+    marginBottom: 44,
   },
   readbackAmount: {
-    fontSize: 34,
-    fontWeight: '800',
+    fontSize: 44,
+    fontWeight: '300',
     color: Echopay.text,
-    letterSpacing: -0.5,
+    letterSpacing: -1.2,
   },
   readbackTo: {
-    fontSize: 15,
+    fontSize: 14,
     color: Echopay.textMuted,
-    marginTop: 6,
-  },
-  readbackMeta: {
-    fontSize: 12,
-    color: Echopay.textSubtle,
-    marginTop: 4,
+    marginTop: 10,
   },
 
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Echopay.text,
-    marginBottom: 8,
-    letterSpacing: 0.2,
-  },
   pinInput: {
-    borderWidth: 1,
-    borderColor: Echopay.border,
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
     fontSize: 28,
-    letterSpacing: 12,
+    letterSpacing: 18,
     textAlign: 'center',
-    backgroundColor: Echopay.cardBg,
     color: Echopay.text,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Echopay.border,
   },
 
   errorText: {
     color: Echopay.danger,
     fontSize: 13,
-    marginTop: 10,
+    marginTop: 12,
+    textAlign: 'center',
     fontWeight: '500',
   },
 
@@ -528,7 +523,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',
-    marginTop: 22,
+    marginTop: 28,
   },
   primaryButtonDisabled: { backgroundColor: Echopay.accentMuted },
   primaryButtonPressed: { backgroundColor: Echopay.accentPressed },
@@ -537,63 +532,61 @@ const styles = StyleSheet.create({
   hintText: {
     fontSize: 12,
     color: Echopay.textSubtle,
-    marginTop: 14,
+    marginTop: 16,
     textAlign: 'center',
   },
   hintBold: { color: Echopay.textMuted, fontWeight: '600' },
 
   // success
-  successScreen: {
-    flex: 1,
-    backgroundColor: Echopay.pageBg,
-    padding: 24,
-    paddingTop: 90,
+  successContent: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 80,
+    paddingBottom: 60,
+    alignItems: 'center',
   },
-  successInner: { alignItems: 'center', flex: 1 },
-  successCheck: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Echopay.success,
+  tick: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Echopay.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 22,
+    marginBottom: 28,
   },
-  successCheckMark: { fontSize: 40, color: Echopay.cardBg, fontWeight: '700' },
-  successHeadline: {
-    fontSize: 26,
-    fontWeight: '800',
+  successAmount: {
+    fontSize: 28,
+    fontWeight: '700',
     color: Echopay.text,
-    letterSpacing: -0.4,
+    letterSpacing: -0.6,
   },
-  successSub: {
+  successTo: {
     fontSize: 15,
     color: Echopay.textMuted,
     marginTop: 6,
   },
-  successCard: {
+  detailList: {
     width: '100%',
-    marginTop: 28,
-    padding: 18,
-    borderRadius: 16,
-    backgroundColor: Echopay.cardBg,
-    borderWidth: 1,
-    borderColor: Echopay.border,
+    marginTop: 32,
   },
-  successRow: {
+  detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 6,
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Echopay.border,
   },
-  successLabel: { fontSize: 13, color: Echopay.textMuted },
-  successValue: { fontSize: 13, color: Echopay.text, fontWeight: '600' },
-  successValueMono: {
+  detailRowLast: { borderBottomWidth: 0 },
+  detailLabel: { fontSize: 14, color: Echopay.textMuted },
+  detailValue: { fontSize: 14, color: Echopay.text, fontWeight: '500' },
+  detailMono: {
     fontSize: 12,
     color: Echopay.text,
-    fontWeight: '600',
+    fontWeight: '500',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 
-  linkRow: { marginTop: 18 },
+  linkButton: { marginTop: 16, paddingVertical: 8 },
   linkText: { color: Echopay.accent, fontSize: 14, fontWeight: '600' },
 });
