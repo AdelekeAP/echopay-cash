@@ -21,12 +21,21 @@ def _build(from_user: int, to_user: int, amount: int, key: str | None = None) ->
     }
 
 
+def _post(client, body: dict, auth_header):
+    """Wrap client.post with the Bearer token for body.from_user_id."""
+    return client.post(
+        "/transfer/in-network",
+        json=body,
+        headers=auth_header(body["from_user_id"]),
+    )
+
+
 # --------------------------------------------------- 21. fresh wallet version starts at 0 and bumps
 
-def test_fresh_wallet_version_starts_at_zero(client, seed_wallets, wallet_reader):
+def test_fresh_wallet_version_starts_at_zero(client, seed_wallets, wallet_reader, auth_header):
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     assert wallet_reader(alice)["version"] == 0
-    r = client.post("/transfer/in-network", json=_build(alice, bob, 100_00))
+    r = _post(client, _build(alice, bob, 100_00), auth_header)
     assert r.status_code == 200
     assert wallet_reader(alice)["version"] == 1
     assert wallet_reader(bob)["version"] == 1
@@ -34,65 +43,73 @@ def test_fresh_wallet_version_starts_at_zero(client, seed_wallets, wallet_reader
 
 # --------------------------------------------------- 22. self-transfer doesn't claim the idempotency key
 
-def test_self_transfer_does_not_claim_idempotency_key(client, seed_wallets, wallet_reader):
+def test_self_transfer_does_not_claim_idempotency_key(client, seed_wallets, wallet_reader, auth_header):
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     key = "shared-key"
     # First call: self-transfer, rejected. Idempotency key must NOT be persisted.
-    r1 = client.post("/transfer/in-network", json=_build(alice, alice, 100_00, key=key))
+    r1 = _post(client, _build(alice, alice, 100_00, key=key), auth_header)
     assert r1.status_code == 400
     # Second call with the SAME key but valid recipient should succeed,
     # not return the rejected row.
-    r2 = client.post("/transfer/in-network", json=_build(alice, bob, 100_00, key=key))
+    r2 = _post(client, _build(alice, bob, 100_00, key=key), auth_header)
     assert r2.status_code == 200
     assert wallet_reader(bob)["balance_kobo"] == 5_000_00 + 100_00
 
 
 # --------------------------------------------------- 23. unknown fields rejected (Pydantic strict)
 
-def test_unknown_fields_rejected(client, seed_wallets):
+def test_unknown_fields_rejected(client, seed_wallets, auth_header):
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     body = _build(alice, bob, 100_00)
     body["totally_made_up_field"] = "hacker_payload"
-    r = client.post("/transfer/in-network", json=body)
+    r = _post(client, body, auth_header)
     assert r.status_code == 422
 
 
 # --------------------------------------------------- 24. idempotency_key at exactly 128 chars (boundary)
 
-def test_idempotency_key_at_max_length(client, seed_wallets):
+def test_idempotency_key_at_max_length(client, seed_wallets, auth_header):
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     # IDEMPOTENCY_KEY_PATTERN allows [A-Za-z0-9_:.-] only.
     key = "a" * 128
     assert len(key) == 128
-    r = client.post("/transfer/in-network", json=_build(alice, bob, 100_00, key=key))
+    r = _post(client, _build(alice, bob, 100_00, key=key), auth_header)
     assert r.status_code == 200, r.text
 
 
 # --------------------------------------------------- 25. idempotency_key at 129 chars rejected
 
-def test_idempotency_key_one_over_max(client, seed_wallets):
+def test_idempotency_key_one_over_max(client, seed_wallets, auth_header):
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     key = "a" * 129
-    r = client.post("/transfer/in-network", json=_build(alice, bob, 100_00, key=key))
+    r = _post(client, _build(alice, bob, 100_00, key=key), auth_header)
     assert r.status_code == 422
 
 
 # --------------------------------------------------- 26. from_user_id = 0 rejected
 
-def test_zero_user_id_rejected(client, seed_wallets):
+def test_zero_user_id_rejected(client, seed_wallets, auth_header):
     bob = seed_wallets["bob"]
-    r = client.post("/transfer/in-network", json=_build(0, bob, 100_00))
+    # from_user_id=0 → pydantic ge=1 fails → 422 before handler. Auth
+    # header still required to reach the handler; passing 0 here doesn't
+    # matter because the body validator fires first.
+    r = client.post(
+        "/transfer/in-network",
+        json=_build(0, bob, 100_00),
+        headers=auth_header(0),
+    )
     assert r.status_code == 422
 
 
 # --------------------------------------------------- 27. simultaneous same-key from two threads
 
-def test_simultaneous_same_key_two_threads(client, seed_wallets, wallet_reader):
+def test_simultaneous_same_key_two_threads(client, seed_wallets, wallet_reader, auth_header):
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     body = _build(alice, bob, 500_00, key="race-key-1")
+    headers = auth_header(alice)
 
     def fire():
-        return client.post("/transfer/in-network", json=body)
+        return client.post("/transfer/in-network", json=body, headers=headers)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
         r1, r2 = ex.submit(fire).result(), ex.submit(fire).result()
@@ -106,7 +123,7 @@ def test_simultaneous_same_key_two_threads(client, seed_wallets, wallet_reader):
 
 # --------------------------------------------------- 28. re-issue with same key but different amount
 
-def test_reissue_same_key_different_amount_returns_original(client, seed_wallets, wallet_reader):
+def test_reissue_same_key_different_amount_returns_original(client, seed_wallets, wallet_reader, auth_header):
     """Documents that the idempotency_key is the source of truth — a
     second request with the same key returns the original row even if
     the second body is different. Same behavior as test_idempotency_
@@ -116,11 +133,11 @@ def test_reissue_same_key_different_amount_returns_original(client, seed_wallets
     """
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     key = "reissue-1"
-    r1 = client.post("/transfer/in-network", json=_build(alice, bob, 500_00, key=key))
+    r1 = _post(client, _build(alice, bob, 500_00, key=key), auth_header)
     assert r1.status_code == 200
     tx1 = r1.json()["data"]["tx_id"]
 
-    r2 = client.post("/transfer/in-network", json=_build(alice, bob, 9_000_00, key=key))
+    r2 = _post(client, _build(alice, bob, 9_000_00, key=key), auth_header)
     assert r2.status_code == 200
     assert r2.json()["data"]["tx_id"] == tx1
 
@@ -130,7 +147,7 @@ def test_reissue_same_key_different_amount_returns_original(client, seed_wallets
 
 # --------------------------------------------------- 29. amount near INT_MAX with matching balance
 
-def test_large_amount_does_not_overflow(client, seed_wallets, wallet_reader):
+def test_large_amount_does_not_overflow(client, seed_wallets, wallet_reader, auth_header):
     """If a wallet ever held INT_MAX kobo (impossible in reality but
     important to test the math), a transfer of that amount must
     either succeed cleanly or return a clear 400 — never silently
@@ -152,6 +169,7 @@ def test_large_amount_does_not_overflow(client, seed_wallets, wallet_reader):
     r = client.post(
         "/transfer/in-network",
         json={"from_user_id": alice, "to_user_id": bob, "amount_kobo": big, "idempotency_key": "big-1"},
+        headers=auth_header(alice),
     )
     assert r.status_code == 200, r.text
     assert wallet_reader(alice)["balance_kobo"] == 0
@@ -160,7 +178,7 @@ def test_large_amount_does_not_overflow(client, seed_wallets, wallet_reader):
 
 # --------------------------------------------------- 30. 10 different senders → 1 receiver concurrently
 
-def test_many_senders_one_receiver(client, wallet_reader):
+def test_many_senders_one_receiver(client, wallet_reader, auth_header):
     """No shared lock between independent senders. Receiver
     accumulates all credits correctly. Conservation holds.
     """
@@ -215,6 +233,7 @@ def test_many_senders_one_receiver(client, wallet_reader):
         return client.post(
             "/transfer/in-network",
             json={"from_user_id": sender_id, "to_user_id": ids["recv"], "amount_kobo": 10_000, "idempotency_key": f"many-{sender_id}"},
+            headers=auth_header(sender_id),
         ).status_code
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
@@ -230,3 +249,43 @@ def test_many_senders_one_receiver(client, wallet_reader):
 
     recv_final = wallet_reader(ids["recv"])["balance_kobo"]
     assert recv_final == 10_000 * successes
+
+
+# --------------------------------------------------- 31. auth required: missing Authorization header
+
+def test_in_network_missing_auth_header(client, seed_wallets):
+    """No Authorization header → 401 auth_required.
+
+    Q&A defense: prevents anonymous callers from passing a forged
+    from_user_id in the body and draining any wallet.
+    """
+    alice, bob = seed_wallets["alice"], seed_wallets["bob"]
+    r = client.post("/transfer/in-network", json=_build(alice, bob, 100_00))
+    assert r.status_code == 401
+    assert r.json()["detail"]["code"] == "auth_required"
+
+
+# --------------------------------------------------- 32. auth user mismatch: token says X, body says Y
+
+def test_in_network_rejects_mismatched_from_user_id(client, seed_wallets, auth_header, wallet_reader):
+    """Token user_id != body.from_user_id → 403 user_mismatch.
+
+    This is THE Q&A defense for the demo: judge asks "where's the auth?"
+    Answer: the token is parsed, its user_id is compared to from_user_id,
+    and the request is rejected if they disagree. The 'from_user_id'
+    in the body becomes a redundancy check, not a trust boundary.
+    """
+    alice, bob = seed_wallets["alice"], seed_wallets["bob"]
+    before_bob = wallet_reader(bob)["balance_kobo"]
+
+    # Token says bob (the receiver!), body says from=alice. Mismatch.
+    r = client.post(
+        "/transfer/in-network",
+        json=_build(alice, bob, 100_00),
+        headers=auth_header(bob),
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "user_mismatch"
+
+    # No state change.
+    assert wallet_reader(bob)["balance_kobo"] == before_bob
