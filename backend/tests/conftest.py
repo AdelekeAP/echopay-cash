@@ -51,6 +51,7 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
         "app.api.sync",
         "app.api.voice_intent",
         "app.api.voice_proxy",
+        "app.api.anomalies",
         "app.api.loans",
         "app.api.admin",
         "app.services.intent_parser",
