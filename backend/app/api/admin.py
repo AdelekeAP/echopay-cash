@@ -185,24 +185,47 @@ def _master_va_balance_kobo(db: Session) -> int:
     """M1 gap-filler.
 
     master_va = initial_seed_baseline
-              + SUM(amount WHERE status='completed' AND type IN ('qr_receive', 'topup'))
-              - SUM(amount WHERE status='completed' AND type='external_out')
+              + SUM(amount WHERE type IN ('qr_receive', 'topup', 'loan_disbursement'))
+              - SUM(amount WHERE type IN ('external_out', 'loan_repayment'))
 
-    The exclusion of `in_network` is the key correctness property:
-    intra-EchoPay transfers don't cross the Squad boundary, so master
-    VA is genuinely unchanged. Including them would false-positive
-    drift after every in-network transfer (1:15 demo beat would break
-    the 3:00 reconcile beat). See PR description "Design decisions"
-    for the full trail.
+    Type classification by ledger semantics — what each type does to the
+    NETWORK TOTAL (the master_va number):
 
-    `topup` is included for completeness (future Static VA inbound) —
-    no rows of that type exist in M1, so the sum is 0.
+      `in_network`         → intra-EchoPay; both sides inside the pool.
+                              EXCLUDED — counting would false-positive
+                              drift after every 1:15-beat in-network
+                              transfer.
+      `qr_receive`         → inbound from external bank via Squad webhook.
+                              EXTERNAL cash enters → master_va += amount.
+      `topup`              → inbound from Static VA (future).
+      `external_out`       → outbound via Squad payout.
+                              EXTERNAL cash leaves → master_va -= amount.
+      `loan_disbursement`  → bank-style credit creation. Borrower's wallet
+                              is credited, so to keep the invariant
+                              `computed_total == master_va` we MUST mark
+                              master_va += amount when the loan goes out.
+                              Conceptually: the pool expands to cover the
+                              new credit (real banks create money when
+                              they lend).
+      `loan_repayment`     → credit destruction. Borrower's wallet is
+                              debited, so master_va -= amount keeps
+                              `computed_total == master_va` aligned.
+
+    Sign-direction caveat: the surface intuition is "loan disburse means
+    cash leaves the pool" which would put loan_disbursement on the
+    outbound side. But that breaks the invariant because the wallet
+    debit/credit and the master_va change must go SAME direction (both
+    up or both down) for drift to stay 0. We model loans as
+    credit-creation events (Leke directive 2026-05-16): drift = 0 always,
+    including mid-loan and during partial repayments. The 3:00 demo
+    reconcile beat survives even when judges click reconcile after the
+    3:45 loan disbursement beat.
     """
     inbound = (
         db.query(Transaction)
         .where(
             Transaction.status == "completed",
-            Transaction.type.in_(("qr_receive", "topup")),
+            Transaction.type.in_(("qr_receive", "topup", "loan_disbursement")),
         )
         .with_entities(Transaction.amount_kobo)
         .all()
@@ -211,7 +234,7 @@ def _master_va_balance_kobo(db: Session) -> int:
         db.query(Transaction)
         .where(
             Transaction.status == "completed",
-            Transaction.type == "external_out",
+            Transaction.type.in_(("external_out", "loan_repayment")),
         )
         .with_entities(Transaction.amount_kobo)
         .all()

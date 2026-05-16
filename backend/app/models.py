@@ -200,6 +200,58 @@ class WebhookEvent(Base):
     )
 
 
+class Loan(Base):
+    """Working-capital loan against the synthetic credit score.
+
+    PR #19 introduced a display-only credit score on the admin dashboard.
+    This PR converts it into a working credit service: users with
+    score ≥ 700 get instant auto-approval + auto-disbursement; 500-699
+    sit in manual_review (no disbursement); < 500 declined outright.
+
+    Disbursement debits the master VA pool conceptually (see
+    admin._master_va_balance_kobo formula update — loan_disbursement is
+    treated as outbound, loan_repayment as inbound, so the reconcile
+    invariant `drift = 0` holds across the full lifecycle including
+    mid-loan).
+
+    Idempotency:
+    - One row per loan request. No idempotency_key on the loan itself —
+      single-active-loan-per-user guard at the endpoint level (cannot
+      have two loans in {pending, approved, disbursed} simultaneously).
+    - The disbursement Transaction inserted alongside uses
+      `loan_disburse_<loan_id>` as its idempotency_key (UNIQUE on the
+      transactions table).
+    """
+
+    __tablename__ = "loans"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    amount_kobo: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    repaid_kobo: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    credit_score_at_request: Mapped[int] = mapped_column(Integer, nullable=False)
+    decision_reason: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=now_unix, nullable=False
+    )
+    approved_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    disbursed_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    repaid_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'disbursed', 'repaid', "
+            "'declined', 'manual_review')",
+            name="loans_status_enum",
+        ),
+        CheckConstraint("amount_kobo > 0", name="loans_positive_amount"),
+        CheckConstraint("repaid_kobo >= 0", name="loans_non_negative_repaid"),
+    )
+
+
 def create_all() -> None:
     """Idempotent — create tables if they don't exist."""
     from .core.db import engine

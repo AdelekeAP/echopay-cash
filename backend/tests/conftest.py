@@ -52,12 +52,16 @@ def client(db_path: str, monkeypatch: pytest.MonkeyPatch):
         "app.api.permits",
         "app.api.offline_sync",
         "app.api.voice_intent",
+        "app.api.voice_proxy",
+        "app.api.loans",
+        "app.api.admin",
         "app.services.intent_parser",
         "app.main",
         "app.models",
         "app.core.db",
         "app.core.config",
         "app.core.crypto",
+        "seed",
     ]:
         sys.modules.pop(mod, None)
 
