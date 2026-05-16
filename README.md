@@ -3,6 +3,22 @@
 Voice-first Squad-powered payment wallet for Nigeria's cash economy.
 Built for GTCO Squad Hackathon 3.0, May 15–16 2026.
 
+## Live deployments
+
+| | URL |
+|---|---|
+| **API** (HTTPS, Let's Encrypt via Caddy) | https://funbi.online |
+| **API docs** (Swagger UI) | https://funbi.online/docs |
+| **Health check** | https://funbi.online/health |
+| **Web app** (Vercel static deploy of the Expo web bundle) | https://mobile-1ojx79rzh-funbis-projects-e6f7ddff.vercel.app |
+
+Architecture in production: DigitalOcean droplet (London) runs the
+FastAPI container exposed on :8100, fronted by Caddy on :80/:443 for
+TLS termination + HTTP→HTTPS redirect. Vercel serves the Expo web
+bundle as static assets and the app calls the API at
+`https://funbi.online`. The DNS for `funbi.online` is at Hostinger
+(A → 144.126.231.148, www CNAME → funbi.online).
+
 ## Team
 
 Adeleke Aladenusi (Leke), Funbi Onaeko, Kosi — Team BB.

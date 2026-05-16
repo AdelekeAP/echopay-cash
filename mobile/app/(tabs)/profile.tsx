@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -114,6 +114,18 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
+    const doLogout = async () => {
+      await logout();
+      router.replace('/login');
+    };
+    if (Platform.OS === 'web') {
+      // RN Web's Alert.alert ignores buttons — render a native confirm
+      // so the destructive action gets a real "are you sure" gate.
+      if (typeof window !== 'undefined' && window.confirm('Log out of EchoPay?')) {
+        void doLogout();
+      }
+      return;
+    }
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
@@ -122,10 +134,7 @@ export default function ProfileScreen() {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/login');
-          },
+          onPress: doLogout,
         },
       ]
     );
@@ -154,11 +163,12 @@ export default function ProfileScreen() {
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>Profile</Text>
       </View>
 
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
       {/* User Info Card */}
       <View style={styles.userCard}>
         <View style={styles.avatar}>
@@ -230,6 +240,7 @@ export default function ProfileScreen() {
       </Pressable>
 
       <Text style={styles.version}>Version 1.0.0</Text>
+      </ScrollView>
 
       {/* Voice Enrollment Modal */}
       <VoiceEnrollment
@@ -247,6 +258,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Echopay.pageBg,
+  },
+  // Bottom padding clears the floating tab bar (see app/(tabs)/_layout.tsx)
+  // so the Logout button stays reachable.
+  scrollContent: {
+    paddingBottom: 100,
   },
   header: {
     padding: 20,
