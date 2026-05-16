@@ -29,7 +29,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 
@@ -54,8 +54,17 @@ export default function ReceiveScreen() {
   const router = useRouter();
   const { user, account, token } = useAuth();
 
+  // PRD §3.14 — voice qr_generate intent routes here with the spoken
+  // amount in route params (kobo, stringified). Pre-fills the input so
+  // the demo flows: "Generate ₦200 QR" → /receive prefilled → tap Generate.
+  const params = useLocalSearchParams<{ amount_kobo?: string }>();
+  const initialAmount =
+    params.amount_kobo && /^\d+$/.test(params.amount_kobo)
+      ? (parseInt(params.amount_kobo, 10) / 100).toString()
+      : '';
+
   const [stage, setStage] = useState<Stage>('idle');
-  const [amountInput, setAmountInput] = useState('');
+  const [amountInput, setAmountInput] = useState(initialAmount);
   const [response, setResponse] = useState<CreateDynamicVaResponse | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
