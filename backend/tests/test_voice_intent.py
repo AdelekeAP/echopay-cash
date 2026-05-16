@@ -157,3 +157,60 @@ def test_whisper_unavailable_503(client, mock_transcribe):
     resp = client.post("/voice/intent", **_audio_payload())
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == "VOICE_UNAVAILABLE"
+
+
+# ----------------------------------------------------------------- qr_generate tests
+# PRD §1 Script A 2:00 beat — "Generate ₦200 QR for okra."
+
+
+def test_qr_generate_basic(client, mock_transcribe):
+    """'generate 200 QR' → qr_generate intent, amountKobo=20_000."""
+    mock_transcribe(transcript="generate 200 QR")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "qr_generate"
+    assert data["action"] == "qr_generate"
+    assert data["entities"]["amountKobo"] == 20_000
+
+
+def test_qr_generate_naira_word(client, mock_transcribe):
+    """'create a QR for two hundred naira' → qr_generate, 20_000 kobo."""
+    mock_transcribe(transcript="create a QR for two hundred naira")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "qr_generate"
+    assert data["entities"]["amountKobo"] == 20_000
+
+
+def test_qr_generate_comma_amount(client, mock_transcribe):
+    """'make a QR for 10,000' → qr_generate, 1_000_000 kobo."""
+    mock_transcribe(transcript="make a QR for 10,000")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "qr_generate"
+    assert data["entities"]["amountKobo"] == 1_000_000
+
+
+def test_qr_generate_no_false_positive_on_transfer(client, mock_transcribe):
+    """'send 5000 to iya tope' must STAY a transfer (no QR keyword present)."""
+    mock_transcribe(transcript="send 5000 to iya tope")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "transfer"
+    assert data["action"] == "transfer_local"
+    assert data["entities"]["recipientId"] == "iya_tope"
+
+
+def test_qr_generate_no_amount(client, mock_transcribe):
+    """'generate a QR please' → qr_generate intent, NO amountKobo (mobile prompts)."""
+    mock_transcribe(transcript="generate a QR please")
+    resp = client.post("/voice/intent", **_audio_payload())
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["intent"] == "qr_generate"
+    assert data["action"] == "qr_generate"
+    assert "amountKobo" not in data["entities"]

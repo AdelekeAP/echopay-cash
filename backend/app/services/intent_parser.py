@@ -46,6 +46,14 @@ _CANCEL_RE = re.compile(
     r"\b(cancel|stop|abort|never mind|nevermind)\b",
     re.IGNORECASE,
 )
+# PRD §1 Script A 2:00 beat — "Generate ₦200 QR for okra." Trigger words
+# "generate/create/make/get me" + "QR" are distinctive enough to avoid
+# false positives on the persona+amount fast-path (no transfer phrasing
+# contains "QR"). Runs BEFORE persona match for the same reason.
+_QR_GENERATE_RE = re.compile(
+    r"\b(generate|create|make|get me)\b.{0,20}\b(qr|q\.?r|cue arr)\b",
+    re.IGNORECASE,
+)
 _DIGIT_AMOUNT_RE = re.compile(r"\b(\d[\d,]*)\b")
 
 # ----------------------------------------------------------------- spoken-number lookup
@@ -70,12 +78,14 @@ _LLM_SYSTEM = (
     "You extract payment intents for a Nigerian market-women mobile wallet.\n"
     "Known recipients (use exact IDs): mama_risikat, iya_tope, kosi.\n"
     "Return ONLY valid JSON — no markdown, no explanation:\n"
-    '{"intent":"transfer"|"balance"|"unknown",'
+    '{"intent":"transfer"|"balance"|"qr_generate"|"unknown",'
     '"recipientId":"mama_risikat"|"iya_tope"|"kosi"|null,'
     '"amountNaira":number|null}\n'
     "Examples:\n"
     '- "send 5000 to iya tope" → {"intent":"transfer","recipientId":"iya_tope","amountNaira":5000}\n'
     '- "pay kosi two hundred naira" → {"intent":"transfer","recipientId":"kosi","amountNaira":200}\n'
+    '- "generate 500 QR" → {"intent":"qr_generate","recipientId":null,"amountNaira":500}\n'
+    '- "make a QR for 200 naira" → {"intent":"qr_generate","recipientId":null,"amountNaira":200}\n'
     '- "what is my balance" → {"intent":"balance","recipientId":null,"amountNaira":null}\n'
     '- "hello" → {"intent":"unknown","recipientId":null,"amountNaira":null}'
 )
@@ -151,7 +161,7 @@ async def _llm_fallback(transcript: str) -> IntentResult | None:
         return None
 
     intent = data.get("intent", "unknown")
-    if intent not in ("transfer", "balance", "unknown"):
+    if intent not in ("transfer", "balance", "qr_generate", "unknown"):
         intent = "unknown"
 
     entities: dict = {}
@@ -187,7 +197,19 @@ async def parse_intent(transcript: str) -> IntentResult:
     if _CANCEL_RE.search(transcript):
         return IntentResult(intent="cancel", action="cancel", entities={})
 
-    # 3. Persona match + amount (no API call)
+    # 3a. QR-generate fast-path. Must run BEFORE persona match so phrasing
+    # like "generate ₦200 QR for okra" (where "for okra" is a memo, not a
+    # recipient) doesn't get hijacked by a future persona-token bleed.
+    if _QR_GENERATE_RE.search(transcript):
+        entities: dict = {}
+        amt = _amount_kobo(transcript)
+        if amt:
+            entities["amountKobo"] = amt
+        return IntentResult(
+            intent="qr_generate", action="qr_generate", entities=entities
+        )
+
+    # 3b. Persona match + amount (no API call)
     persona = match_persona(transcript)
     if persona:
         entities: dict = {"recipientId": persona.persona_id}
