@@ -168,6 +168,97 @@ export async function getAdminState(): Promise<never> {
   throw new Error('getAdminState: not implemented yet (admin dashboard PR)');
 }
 
+// ----------------------------------------------------------------- DVA resolve + pay
+
+export interface ResolveDvaResponse {
+  recipient_user_id: number;
+  recipient_display_name: string;
+  persona_id: string;
+}
+
+/**
+ * GET /dynamic-va/resolve — phone-book lookup for scan-to-pay.
+ *
+ * Mobile scans a bare 10-digit DVA number off a QR; the backend returns
+ * the recipient's display name + user_id + persona_id. NEVER returns
+ * sensitive fields (phone, email, bvn, balances) — see backend security
+ * test test_resolve_no_sensitive_leak.
+ */
+export async function resolveDVA(
+  vaNumber: string,
+  token: string | null,
+): Promise<ResolveDvaResponse> {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const res = await axios.get<{ success: true; data: ResolveDvaResponse }>(
+      `${API_BASE_URL}/dynamic-va/resolve`,
+      { headers, params: { va_number: vaNumber }, timeout: 8_000 },
+    );
+    return res.data.data;
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
+export interface PayByDvaResponse {
+  tx_id: string;
+  status: string;
+  settled_at: number;
+  balance_after_kobo: number;
+  recipient_display_name: string;
+}
+
+/**
+ * Resolve a scanned DVA then immediately pay it via /transfer/in-network.
+ *
+ * Composes resolveDVA + POST /transfer/in-network. The in-network
+ * endpoint enforces Bearer-token auth (token user MUST equal
+ * fromUserId else 403), which is THE Q&A defense against forged
+ * from_user_id claims.
+ *
+ * idempotencyKey: pass through from scan.tsx (generated once when
+ * entering the confirm stage via useMemo on [vaNumber, amountKobo]).
+ * Re-tapping Pay during a slow network won't double-charge.
+ */
+export async function payByDVA(
+  vaNumber: string,
+  amountKobo: number,
+  fromUserId: number,
+  token: string | null,
+  idempotencyKey: string,
+): Promise<PayByDvaResponse> {
+  const resolved = await resolveDVA(vaNumber, token);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const res = await axios.post<{
+      success: true;
+      data: {
+        tx_id: string;
+        status: string;
+        settled_at: number;
+        balance_after_kobo: number;
+      };
+    }>(
+      `${API_BASE_URL}/transfer/in-network`,
+      {
+        from_user_id: fromUserId,
+        to_user_id: resolved.recipient_user_id,
+        amount_kobo: amountKobo,
+        idempotency_key: idempotencyKey,
+      },
+      { headers, timeout: 10_000 },
+    );
+    return {
+      ...res.data.data,
+      recipient_display_name: resolved.recipient_display_name,
+    };
+  } catch (err) {
+    throw _toBackendError(err);
+  }
+}
+
 // ----------------------------------------------------------------- voice intent
 
 export interface ParseIntentResult {

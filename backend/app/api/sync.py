@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from ..core.db import get_db
 from .transfer import (
     InNetworkTransferRequest,
-    in_network_transfer,
+    _in_network_core,
 )
 
 router = APIRouter(prefix="/transfer", tags=["sync"])
@@ -73,7 +73,7 @@ def sync_offline_batch(
             from_locked=True,                                  # offline replay
         )
         try:
-            tx = in_network_transfer(inner, db)
+            tx = _in_network_core(inner, db)
             results.append(
                 _ResultRow(
                     idempotency_key=op.idempotency_key,

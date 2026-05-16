@@ -112,7 +112,7 @@ def test_lock_idempotent(client, seed_wallets):
 
 # --------------------------------------------------------- 6. from_locked transfer happy
 
-def test_from_locked_transfer_happy(client, seed_wallets):
+def test_from_locked_transfer_happy(client, seed_wallets, auth_header):
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     # pre-load Alice's offline budget
     client.post(
@@ -129,6 +129,7 @@ def test_from_locked_transfer_happy(client, seed_wallets):
             "idempotency_key": _key("ln-"),
             "from_locked": True,
         },
+        headers=auth_header(alice),
     )
     assert r.status_code == 200, r.text
     data = r.json()["data"]
@@ -141,7 +142,7 @@ def test_from_locked_transfer_happy(client, seed_wallets):
 
 # --------------------------------------------------------- 7. from_locked transfer with no locked funds
 
-def test_from_locked_transfer_no_locked(client, seed_wallets):
+def test_from_locked_transfer_no_locked(client, seed_wallets, auth_header):
     alice, bob = seed_wallets["alice"], seed_wallets["bob"]
     r = client.post(
         "/transfer/in-network",
@@ -152,6 +153,7 @@ def test_from_locked_transfer_no_locked(client, seed_wallets):
             "idempotency_key": _key("ln-"),
             "from_locked": True,
         },
+        headers=auth_header(alice),
     )
     assert r.status_code == 400
     assert r.json()["detail"]["code"] == "insufficient_locked_balance"
@@ -159,7 +161,7 @@ def test_from_locked_transfer_no_locked(client, seed_wallets):
 
 # --------------------------------------------------------- 8. from_locked must NOT fall through to balance
 
-def test_from_locked_does_not_fall_through_to_balance(client, seed_wallets):
+def test_from_locked_does_not_fall_through_to_balance(client, seed_wallets, auth_header):
     """Even with plenty of balance_kobo, from_locked=true insists on
     locked_kobo. Falling through would be a silent ledger error.
     """
@@ -174,6 +176,7 @@ def test_from_locked_does_not_fall_through_to_balance(client, seed_wallets):
             "idempotency_key": _key("ln-"),
             "from_locked": True,
         },
+        headers=auth_header(alice),
     )
     assert r.status_code == 400
     state = _read_wallets(client, [alice, bob])
@@ -184,12 +187,12 @@ def test_from_locked_does_not_fall_through_to_balance(client, seed_wallets):
 
 # --------------------------------------------------------- 9. reconciliation invariant under mixed ops
 
-def test_reconciliation_invariant(client, seed_wallets):
+def test_reconciliation_invariant(client, seed_wallets, auth_header):
     alice, bob, carol = seed_wallets["alice"], seed_wallets["bob"], seed_wallets["carol"]
     initial = sum(_read_wallets(client, [alice, bob, carol])[u]["balance_kobo"] for u in (alice, bob, carol))
     # sequence: alice locks 4K, sends 1K offline to bob, unlocks 1K
     client.post("/wallet/lock-for-offline", json={"user_id": alice, "amount_kobo": 4_000_00, "idempotency_key": _key("lock-")})
-    client.post("/transfer/in-network", json={"from_user_id": alice, "to_user_id": bob, "amount_kobo": 1_000_00, "idempotency_key": _key("ln-"), "from_locked": True})
+    client.post("/transfer/in-network", json={"from_user_id": alice, "to_user_id": bob, "amount_kobo": 1_000_00, "idempotency_key": _key("ln-"), "from_locked": True}, headers=auth_header(alice))
     client.post("/wallet/unlock-from-offline", json={"user_id": alice, "amount_kobo": 1_000_00, "idempotency_key": _key("unlock-")})
     final = _read_wallets(client, [alice, bob, carol])
     total = sum(final[u]["balance_kobo"] + final[u]["locked_kobo"] for u in (alice, bob, carol))

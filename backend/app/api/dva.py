@@ -468,3 +468,73 @@ def _insert_qr_tx(
         db.flush()
         _ = (tx.id, tx.created_at)  # materialise
         return tx
+
+
+# ----------------------------------------------------------------- /resolve
+
+def _persona_id_from_customer_identifier(customer_identifier: str) -> str:
+    """Strip the `_NNN` suffix off a seeded identifier.
+
+    Mirrors the same helper in `app/api/admin.py:_persona_id_from_customer_identifier`.
+    Centralising is a separate refactor — duplication accepted here.
+    """
+    parts = customer_identifier.rsplit("_", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        return parts[0]
+    return customer_identifier
+
+
+@router.get("/resolve")
+def resolve_dva(va_number: str, db: Session = Depends(get_db)) -> dict:
+    """Look up the recipient persona for a scanned DVA number.
+
+    PRD §1 Script A 2:00 beat — Phone B scans Mama's QR (a bare 10-digit
+    Squad VA number) and needs to know who to pay. This endpoint is the
+    phone-book lookup: VA → display name + persona_id + user_id.
+
+    Security: returns ONLY the lean payload (no phone, email, BVN, dob,
+    address, balances). The actual payment happens via
+    POST /transfer/in-network which itself enforces token-based auth.
+    """
+    if not va_number or not va_number.isdigit() or len(va_number) != 10:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_VA",
+                "message": "va_number must be a 10-digit string.",
+            },
+        )
+
+    wallet = db.scalar(
+        select(Wallet).where(Wallet.squad_va_number == va_number)
+    )
+    if wallet is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "VA_NOT_FOUND",
+                "message": "No EchoPay user is associated with this account.",
+            },
+        )
+
+    user = db.get(User, wallet.user_id)
+    if user is None:
+        # Defensive: orphan wallet. Surface as 404 from the caller's POV.
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "VA_NOT_FOUND",
+                "message": "No EchoPay user is associated with this account.",
+            },
+        )
+
+    return {
+        "success": True,
+        "data": {
+            "recipient_user_id": user.id,
+            "recipient_display_name": f"{user.first_name} {user.last_name}",
+            "persona_id": _persona_id_from_customer_identifier(
+                user.customer_identifier
+            ),
+        },
+    }

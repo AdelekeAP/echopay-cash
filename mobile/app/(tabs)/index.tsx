@@ -52,6 +52,16 @@ export default function HomeScreen() {
         });
         return;
       }
+      // PRD §1 Script A 2:00 — "Generate ₦200 QR for okra." Routes to
+      // /receive with the spoken amount pre-filled; receive.tsx reads
+      // amount_kobo from useLocalSearchParams and seeds the input.
+      if (action === 'qr_generate') {
+        router.push({
+          pathname: '/receive',
+          params: { amount_kobo: String(entities.amountKobo ?? '') },
+        });
+        return;
+      }
       if (action === 'balance') {
         const kobo =
           entities.balance_kobo ??
