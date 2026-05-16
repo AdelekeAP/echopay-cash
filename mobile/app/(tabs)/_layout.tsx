@@ -1,22 +1,22 @@
 import { Tabs, useRouter } from 'expo-router';
 import React, { useState, useCallback } from 'react';
-import { Platform, View } from 'react-native';
+import { Alert, Platform, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import FloatingMicButton from '../../components/voice/FloatingMicButton';
-import VoiceModal from '../../components/VoiceModal';
+import VoiceIntentModal from '../../components/voice/VoiceIntentModal';
 import { useAuth } from '../../context/AuthContext';
-import { VoiceResponse } from '../../services/voiceService';
 import { useWakeWord } from '../../hooks/useWakeWord';
 import { useShakeDetection } from '../../hooks/useShakeDetection';
 import { Echopay } from '../../constants/theme';
+import { formatKoboToNaira } from '../../utils/format';
 
 export default function TabLayout() {
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
-  const { account, refreshAccount } = useAuth();
+  const { account } = useAuth();
   const router = useRouter();
 
   // Open voice modal
@@ -46,19 +46,40 @@ export default function TabLayout() {
     setIsProcessing(false);
   };
 
-  const handleTransferRequested = (data: VoiceResponse['data']) => {
-    // Close voice modal and navigate to transfer screen with pre-filled data
-    setVoiceModalVisible(false);
-    if (data?.recipient_name && data?.amount) {
-      router.push({
-        pathname: '/transfer',
-        params: {
-          recipientName: data.recipient_name,
-          amount: data.amount.toString(),
-        },
-      });
-    }
-  };
+  // Mirrors home screen's handleVoiceIntent (PRD_LEKE §3.14). Receives the
+  // parsed action + entities from POST /voice/intent and routes accordingly.
+  const handleVoiceIntent = useCallback(
+    (
+      action: string,
+      entities: { recipientId?: string; amountKobo?: number; balance_kobo?: number },
+    ) => {
+      setVoiceModalVisible(false);
+      if (action === 'transfer_local' && entities.recipientId) {
+        router.push({
+          pathname: '/local-transfer',
+          params: {
+            recipientId: entities.recipientId,
+            amountKobo: String(entities.amountKobo ?? 0),
+          },
+        });
+        return;
+      }
+      if (action === 'qr_generate') {
+        router.push({
+          pathname: '/receive',
+          params: { amount_kobo: String(entities.amountKobo ?? '') },
+        });
+        return;
+      }
+      if (action === 'balance') {
+        const kobo =
+          entities.balance_kobo ??
+          Math.round(parseFloat(account?.balance ?? '0') * 100);
+        Alert.alert('Available balance', formatKoboToNaira(kobo), [{ text: 'OK' }]);
+      }
+    },
+    [router, account?.balance],
+  );
 
   return (
     <View style={{ flex: 1 }}>
@@ -119,13 +140,11 @@ export default function TabLayout() {
         isProcessing={isProcessing}
       />
 
-      {/* Voice Modal */}
-      <VoiceModal
+      {/* Voice Modal — real /voice/intent flow (PRD_LEKE §3.14) */}
+      <VoiceIntentModal
         visible={voiceModalVisible}
         onClose={handleVoiceModalClose}
-        accountNumber={account?.account_number}
-        onTransferRequested={handleTransferRequested}
-        onTransferComplete={refreshAccount}
+        onIntent={handleVoiceIntent}
       />
     </View>
   );
