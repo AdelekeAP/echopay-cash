@@ -15,12 +15,15 @@ returned VAs instead of these stand-ins.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from sqlalchemy import select
 
 from app.core.db import db_session
 from app.models import Transaction, User, Wallet, create_all, now_unix
+from app.squad.client import SquadError, get_squad_client
+from app.squad.static_va import create_static_va
 
 
 # NOTE: gender / address / beneficiary_account are inert in this seed
@@ -336,6 +339,46 @@ def _seed_mama_demo_activity(db) -> int:
     return inserted
 
 
+async def _try_mint_real_squad_va(spec: dict) -> str | None:
+    """Mint a real Squad sandbox Static VA for this persona.
+
+    Returns the 10-digit VA on success, None on any failure (sandbox
+    rejection, network error, key missing). Caller falls back to the
+    placeholder so the seed never crashes — partial real VAs are
+    better than no seed at all when demo is imminent.
+    """
+    client = get_squad_client()
+    if not client.configured:
+        return None
+    try:
+        result = await create_static_va(
+            client,
+            customer_identifier=spec["customer_identifier"],
+            first_name=spec["first_name"],
+            last_name=spec["last_name"],
+            phone=spec["phone"],
+            email=spec["email"],
+            bvn=spec["bvn"],
+            dob=spec["dob"],
+            address=spec["address"],
+            gender=spec["gender"],
+            beneficiary_account=spec["beneficiary_account"],
+        )
+        return result.va_number
+    except SquadError as e:
+        print(
+            f"  ! Squad mint failed for {spec['customer_identifier']}: {e} — "
+            "falling back to placeholder VA"
+        )
+        return None
+    except Exception as e:
+        print(
+            f"  ! Unexpected error minting VA for {spec['customer_identifier']}: "
+            f"{type(e).__name__}: {e} — falling back to placeholder"
+        )
+        return None
+
+
 def main() -> None:
     create_all()
     for spec in PERSONAS:
@@ -344,8 +387,44 @@ def main() -> None:
                 select(User).where(User.customer_identifier == spec["customer_identifier"])
             )
             if existing:
-                print(f"skip {spec['customer_identifier']} — already seeded")
+                # Existing row — if its VA is still the placeholder, try
+                # to remint a real Squad VA in place. Keeps anomaly
+                # history and balances intact. Idempotent: re-runs against
+                # a real VA do nothing.
+                wallet = db.get(Wallet, existing.id)
+                if wallet and wallet.squad_va_number == spec["va_number"]:
+                    new_va = asyncio.run(_try_mint_real_squad_va(spec))
+                    if new_va:
+                        old_va = wallet.squad_va_number
+                        wallet.squad_va_number = new_va
+                        wallet.version += 1
+                        wallet.updated_at = now_unix()
+                        db.commit()
+                        print(
+                            f"reminted {spec['customer_identifier']}: "
+                            f"{old_va} → {new_va} (REAL squad)"
+                        )
+                    else:
+                        print(
+                            f"skip {spec['customer_identifier']} — Squad "
+                            "mint failed, kept placeholder"
+                        )
+                else:
+                    print(
+                        f"skip {spec['customer_identifier']} — already has "
+                        f"real VA ({wallet.squad_va_number if wallet else 'n/a'})"
+                    )
                 continue
+            # Attempt to mint a real Squad sandbox VA for this persona; on
+            # any failure (sandbox down, schema reject, key missing), the
+            # helper returns None and we use the placeholder VA so the
+            # seed completes regardless. Real VAs become visible in the
+            # Squad sandbox dashboard for the demo Q&A "show me the
+            # integration" moment.
+            real_va = asyncio.run(_try_mint_real_squad_va(spec))
+            va_to_use = real_va if real_va else spec["va_number"]
+            va_marker = "REAL squad" if real_va else "PLACEHOLDER"
+
             u = User(
                 customer_identifier=spec["customer_identifier"],
                 first_name=spec["first_name"],
@@ -362,14 +441,17 @@ def main() -> None:
             db.add(
                 Wallet(
                     user_id=u.id,
-                    squad_va_number=spec["va_number"],
+                    squad_va_number=va_to_use,
                     balance_kobo=spec["balance_kobo"],
                     locked_kobo=spec["locked_kobo"],
                     updated_at=now_unix(),
                 )
             )
             db.commit()
-            print(f"seeded {spec['customer_identifier']} → user_id={u.id}")
+            print(
+                f"seeded {spec['customer_identifier']} → user_id={u.id}, "
+                f"VA={va_to_use} ({va_marker})"
+            )
 
     # After all personas exist, backfill Musa's gig history (idempotent
     # — second run inserts nothing).
