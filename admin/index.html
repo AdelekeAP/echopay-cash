@@ -103,7 +103,11 @@
       main {
         padding: 28px;
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        /* auto-fit with a minmax floor lets the grid handle 3 or 4+ personas
+           cleanly. 3 personas → 3 columns. 4 personas on wide displays →
+           4 columns. Narrow display → graceful reflow without forcing the
+           1-column mobile breakpoint below. */
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         gap: 18px;
       }
       @media (max-width: 900px) {
