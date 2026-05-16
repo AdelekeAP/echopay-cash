@@ -18,7 +18,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./echopay.db"
     cors_origins: str = (
-        "http://localhost:8081,http://localhost:5173,http://localhost:19006"
+        "http://localhost:8081,http://localhost:5173,http://localhost:19006,"
+        "http://127.0.0.1:5173,http://127.0.0.1:8081"
     )
 
     voice_base_url: str = "http://localhost:8000"
