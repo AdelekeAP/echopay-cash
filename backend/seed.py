@@ -129,16 +129,18 @@ def _seed_musa_gigs(db) -> int:
 
     Returns the count of NEW rows inserted (0 if already seeded).
 
-    NOTE: we don't debit Mama/Iya's wallets here. These are narrative
-    history rows representing past gigs whose principal is already
-    baked into the seeded baseline. Touching their balances now would
-    double-count.
+    Conservation: each gig DEBITS the counterparty (mama or iya) and
+    CREDITS Musa. The total system balance is unchanged — gigs are real
+    intra-EchoPay transfers, not fresh money. Without these debits the
+    reconcile invariant breaks at baseline (drift = +gig_total).
     """
     musa = db.scalar(
         select(User).where(User.customer_identifier == "musa_offloader_001")
     )
     if musa is None:
         return 0  # Musa not seeded yet — caller bootstraps personas first
+
+    musa_wallet = db.get(Wallet, musa.id)
 
     inserted = 0
     now = now_unix()
@@ -152,12 +154,19 @@ def _seed_musa_gigs(db) -> int:
         counterparty = db.scalar(
             select(User).where(User.customer_identifier == counterparty_id)
         )
-        counterparty_uid = counterparty.id if counterparty is not None else None
+        if counterparty is None:
+            # If a counterparty isn't seeded (shouldn't happen post-main()
+            # but defensive), skip this gig rather than corrupt history.
+            continue
+        counterparty_wallet = db.get(Wallet, counterparty.id)
+        if counterparty_wallet is None:
+            continue
+
         gig_at = now - (days_ago * 86_400)
         db.add(Transaction(
             id=f"gig_{uuid.uuid4().hex[:16]}",
             user_id=musa.id,
-            counterparty_user_id=counterparty_uid,
+            counterparty_user_id=counterparty.id,
             type="in_network",
             direction="in",
             amount_kobo=amount_kobo,
@@ -166,19 +175,20 @@ def _seed_musa_gigs(db) -> int:
             created_at=gig_at,
             settled_at=gig_at,
         ))
-        # Credit Musa's wallet so balance + history tell the same story
-        # AND so the credit_score balance_bonus fires.
-        wallet = db.get(Wallet, musa.id)
-        if wallet is not None:
-            wallet.balance_kobo += amount_kobo
-            wallet.version += 1
-            wallet.updated_at = now
+        # Conservation: debit the counterparty, credit Musa.
+        counterparty_wallet.balance_kobo -= amount_kobo
+        counterparty_wallet.version += 1
+        counterparty_wallet.updated_at = now
+        if musa_wallet is not None:
+            musa_wallet.balance_kobo += amount_kobo
+            musa_wallet.version += 1
+            musa_wallet.updated_at = now
         inserted += 1
 
     # Backfill Musa's User.created_at to 30 days ago so the account-age
-    # bonus in compute_credit_score() hits the 100-point cap (max age
-    # bonus = 50 days × 2 = 100). Without this, fresh-seeded Musa starts
-    # with age_bonus=0 and the score lands below auto-approve.
+    # bonus in compute_credit_score() rises to 60 (30 days × 2). Combined
+    # with 12 inbound (bonus 120) + balance > ₦10k (bonus 50), the score
+    # lands around 730 — auto-approve band.
     if inserted > 0:
         musa.created_at = now - (30 * 86_400)
 
